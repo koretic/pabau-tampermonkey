@@ -1,0 +1,10 @@
+# Lockfiles d'editors / SO
+.~lock.*
+.DS_Store
+Thumbs.db
+
+# Fitxers temporals
+*.tmp
+*.swp
+*.swo
+*~
