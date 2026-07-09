@@ -21,6 +21,80 @@
     const REQUIRED_DOC = "LOPD_FIRMADO.pdf";
     const BUTTON_SELECTOR = 'button[data-testid="operation-create"]';
 
+    // ---------------------------------------------------------------------
+    // Gestió de navegació SPA
+    // ---------------------------------------------------------------------
+    // La SPA de Pabau NO recarrega la pàgina quan canvia de vista, per la
+    // qual cosa el #invoice apareix i desapareix sense modificar la URL.
+    // Detectem els canvis de ruta (pushState/replaceState + popstate) i
+    // reintentem la cerca de l'element en cada vista.
+    // ---------------------------------------------------------------------
+    let value = null;
+    let invoiceWatchId = 0;
+    let lastHref = location.href;
+
+    function watchInvoice(selector = "#invoice") {
+        // Cancel·lem qualsevol cerca anterior
+        invoiceWatchId += 1;
+        const myId = invoiceWatchId;
+
+        const tryRead = () => {
+            if (myId !== invoiceWatchId) return; // algú altre ens ha cancel·lat
+            const el = document.querySelector(selector);
+            if (el) {
+                value = el.value;
+                console.log("[Pabau LOPD] Invoice obtinguda:", value);
+            } else {
+                // Tornem a provar en el pròxim tick del DOM
+                requestAnimationFrame(tryRead);
+            }
+        };
+        tryRead();
+    }
+
+    function onUrlChange() {
+        if (location.href === lastHref) return;
+        const oldHref = lastHref;
+        lastHref = location.href;
+        console.log("[Pabau LOPD] Canvi de URL:", oldHref, "→", location.href);
+        // Reset del valor i nova cerca
+        value = null;
+        watchInvoice();
+        // Netejem els estats dels botons de l'anterior vista
+        document
+            .querySelectorAll(`${BUTTON_SELECTOR}[data-lopd-blocked]`)
+            .forEach((b) => {
+                b.removeAttribute("data-lopd-blocked");
+                b.removeAttribute("data-lopd-checked");
+                b.removeAttribute("data-lopd-key");
+                b.disabled = false;
+                b.style.cssText = "";
+            });
+        // Si hem canviat de client, descartem la memòria de vistes ja processades
+        const newClientMatch = location.pathname.match(/^\/clients\/(\d+)\//);
+        const oldClientMatch = oldHref.match(/\/clients\/(\d+)\//);
+        const newClient = newClientMatch ? newClientMatch[1] : null;
+        const oldClient = oldClientMatch ? oldClientMatch[1] : null;
+        if (newClient !== oldClient) processedKeys.clear();
+    }
+
+    // Hook sobre history.pushState / replaceState (la SPA els crida en navegar)
+    ["pushState", "replaceState"].forEach((fn) => {
+        const original = history[fn];
+        history[fn] = function (...args) {
+            const result = original.apply(this, args);
+            onUrlChange();
+            return result;
+        };
+    });
+    window.addEventListener("popstate", onUrlChange);
+
+    // Llancem la primera cerca quan el body existeixi
+    if (document.body) {
+        watchInvoice();
+    } else {
+        document.addEventListener("DOMContentLoaded", watchInvoice);
+    }
     // 1) Verifiquem que la URL té el paràmetre `referrer` (per coincidir amb el patró original)
     const url = new URL(window.location.href);
     if (!url.searchParams.has("referrer")) {
@@ -108,6 +182,10 @@
 
     // 6) Modificar el botó quan falti el document
     function blockButton() {
+        // Només bloquejar si estem en una vista amb #invoice (edició de factura)
+        // Si l'element no existeix, no és la pantalla correcta — sortim.
+        if (!document.querySelector("#invoice")) return;
+
         const btn = document.querySelector(BUTTON_SELECTOR);
         if (!btn) return;
 
@@ -127,15 +205,35 @@
     }
 
     // 7) L'SPA de Pabau carrega el botó dinàmicament — observem el DOM
-    let alreadyProcessed = false;
+    // L'estat `alreadyProcessed` ara es basa per clientId + URL, ja que
+    // canviar de vista dins de la SPA requereix una nova comprovació.
+    const processedKeys = new Set();
+
+    function buildKey() {
+        return `${clientId}|${location.pathname}${location.search}`;
+    }
 
     async function processButton() {
-        if (alreadyProcessed) return;
         const btn = document.querySelector(BUTTON_SELECTOR);
-        if (!btn || btn.dataset.lopdChecked === "true") return;
+        if (!btn) return;
+
+        const key = buildKey();
+        // Si ja hem processat exactament aquesta vista, sortim
+        if (btn.dataset.lopdKey === key) return;
+        // Si ja hem fet la crida API per aquesta vista, no la repetim
+        if (processedKeys.has(key)) {
+            // Però encara podem haver de bloquejar el botó (vista acabada de muntar)
+            if (!btn.dataset.lopdChecked) {
+                btn.dataset.lopdChecked = "true";
+                blockButton();
+                btn.dataset.lopdKey = key;
+            }
+            return;
+        }
 
         btn.dataset.lopdChecked = "true";
-        alreadyProcessed = true;
+        btn.dataset.lopdKey = key;
+        processedKeys.add(key);
 
         try {
             const hasDoc = await checkLopdDocument();
