@@ -8,3 +8,6 @@ Thumbs.db
 *.swp
 *.swo
 *~
+*.xlsx
+*.ods
+treatment_docs/*
