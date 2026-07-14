@@ -1,0 +1,1024 @@
+// ==UserScript==
+// @name         Block invoice Pabau - LOPD check
+// @namespace    http://tampermonkey.net/
+// @version      2026-07-12
+// @description  Comprova els papers requerits (LOPD + CI per tractament) pels items d'una factura Pabau
+// @author       Alex Rodriguez
+// @match        https://app.pabau.com/*
+// @match        https://app.pabau.com/clients/*/financial*
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=pabau.com
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_xmlhttpRequest
+// @grant        GM_registerMenuCommand
+// @connect      api.oauth.pabau.com
+// @run-at       document-end
+// @sandbox      JavaScript
+// ==/UserScript==
+
+/**
+ * Estructura del fitxer:
+ *
+ *   1. Constants i selectors
+ *   2. Mòdul `invoiceStore`     -> gestiona el valor de #invoice de forma reactiva
+ *   3. Mòdul `routerWatcher`   -> detecta canvis d'URL a la SPA
+ *   4. Mòdul `apiKey`          -> lectura/escriptura de la clau desada
+ *   5. Mòdul `documentsApi`    -> consulta de LOPD_FIRMADO.pdf a l'API
+ *   6. Mòdul `buttonGuard`     -> bloqueig visual del botó "Guardar cambios"
+ *   7. Mòdul `invoiceGuard`    -> orquestrador: lliga router + DOM + botó + API
+ *   8. Bootstrap               -> punt d'entrada
+ *
+ * Cada mòdul exposa poques funcions i no toca globals més enllà del
+ * necessari. Així, si més endavant cal afegir funcionalitat (p.ex.
+ * validar més documents), cada part es toca de forma aïllada.
+ */
+(function () {
+    "use strict";
+
+    /* =========================================================================
+     * 1. CONSTANTS I SELECTORS
+     * ======================================================================= */
+    const CONFIG = Object.freeze({
+        STORAGE_KEY: "pabau_api_key",
+        API_BASE: "https://api.oauth.pabau.com",
+        INVOICE_SELECTOR: "#invoice",
+        BUTTON_SELECTOR: 'button[data-testid="operation-create"]',
+        BLOCKED_LABEL: "Falta la documentación firmada",
+        LOPD_DOCUMENT: "LOPD_FIRMADO.pdf", // sempre requerit
+        // Text que es mostra al botó mentre s'està consultant l'API.
+        // El botó ja queda disabled; el text és purament informatiu.
+        CONSULTING_LABEL: "Consultando documentación...",
+    });
+
+    /* =========================================================================
+     * 1b. MÒDUL: treatmentsConfig
+     * ----------------------------------------------------------------------
+     * Mapa de tractaments incrustat directament (substitueix l'antic
+     * `treatments_config.js` carregat amb @require). Permet resoldre quin
+     * document signat toca per a cada tractament de la factura.
+     *
+     * IMPORTANT: Cada entrada amb `document !== null` genera una entrada
+     * adicional a la llista de documents requerits. A més, LOPD_FIRMADO.pdf
+     * (CONFIG.LOPD_DOCUMENT) es valida SEMPRE, independentment del tractament.
+     * ======================================================================= */
+
+    const treatmentsConfig = (() => {
+        const TREATMENTS = [
+            // ============ Ácido Hialurónico ============
+            { id: 2702512, name: "Marcación mandibular",                category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
+            { id: 2702513, name: "Proyección de mentón",                 category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
+            { id: 2702514, name: "Proyección de pómulos",                category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
+            { id: 2702515, name: "Corrección surco nasogeniano",         category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
+            { id: 2702516, name: "Corrección líneas de marioneta",       category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
+            { id: 2702517, name: "Corrección sonrisa gingival",          category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
+            { id: 2702518, name: "Relleno fosa temporal",                category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
+            { id: 2702519, name: "Código de barras",                     category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
+            { id: 2702520, name: "Corrección de ojeras",                 category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
+            { id: 2702521, name: "Diseño de labios",                     category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
+            { id: 2702522, name: "Rinomodelación",                       category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
+            { id: 2702523, name: "Rinomodelación con cirugía previa",    category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
+
+            // ============ Blefaroplastia ============
+            { id: 2702542, name: "Blefaroplastia superior",              category: "Blefaroplastia",      document: { base: "CI BLEFAROPLASTIA-ES 2026",     expiryMonths: 12 } },
+            { id: 2702543, name: "Blefaroplastia inferior",              category: "Blefaroplastia",      document: { base: "CI BLEFAROPLASTIA-ES 2026",     expiryMonths: 12 } },
+            { id: 2702544, name: "Blefaroplastia 4 párpados",            category: "Blefaroplastia",      document: { base: "CI BLEFAROPLASTIA-ES 2026",     expiryMonths: 12 } },
+
+            // ============ Exosomas y Biología ============
+            { id: 2702545, name: "Exosomas autólogos",                   category: "Exosomas y Biología", document: { base: "Consent. Exosomas autólogos ES 2026", expiryMonths: 12 } },
+            { id: 2702546, name: "Polinucleótidos",                      category: "Exosomas y Biología", document: { base: "CI Polinucleotidos universal ES 2026", expiryMonths: 12 } },
+            { id: 2702547, name: "Hialuronidasa",                        category: "Exosomas y Biología", document: { base: "CI HIALURONIDASA ES 2026",      expiryMonths: 12 } },
+
+            // ============ Neuromoduladores ============
+            { id: 2702524, name: "Neuromoduladores – 1 zona",            category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA ES 2026",   expiryMonths: 12 } },
+            { id: 2702525, name: "Neuromoduladores – 2 zonas",           category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA ES 2026",   expiryMonths: 12 } },
+            { id: 2702526, name: "Neuromoduladores – 3 zonas",           category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA ES 2026",   expiryMonths: 12 } },
+            { id: 2702527, name: "Neuromoduladores tercio inferior",     category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA ES 2026",   expiryMonths: 12 } },
+            { id: 2702528, name: "Bruxismo",                             category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA ES 2026",   expiryMonths: 12 } },
+            { id: 2702529, name: "Hiperhidrosis",                        category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA ES 2026",   expiryMonths: 12 } },
+
+            // ============ Inductores de colágeno (Sculptra / Radiesse) ============
+            { id: 2702531, name: "Sculptra cuello",                      category: "Inductores",          document: { base: "CI INDUCTOR DE COLÁGENO ES 2026", expiryMonths: 12 } },
+            { id: 2702530, name: "Sculptra cara",                        category: "Inductores",          document: { base: "CI INDUCTOR DE COLÁGENO ES 2026", expiryMonths: 12 } },
+            { id: 2702532, name: "Radiesse Cara",                        category: "Inductores",          document: { base: "CI INDUCTOR DE COLÁGENO ES 2026", expiryMonths: 12 } },
+            { id: 2702533, name: "Radiesse cuello",                      category: "Inductores",          document: { base: "CI INDUCTOR DE COLÁGENO ES 2026", expiryMonths: 12 } },
+            { id: 2702597, name: "Inductores de colágeno",               category: "Inductores",          document: { base: "CI INDUCTOR DE COLÁGENO ES 2026", expiryMonths: 12 } },
+
+            // ============ Láser Rejuvenecimiento ============
+            { id: 2702560, name: "ResurFX rejuvenecimiento",                       category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702561, name: "Láser Pico rejuvenecimiento / manchas / melasma", category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702562, name: "CO2 Panfacial completo",                         category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702563, name: "CO2 Tercio medio",                               category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702564, name: "CO2 Periocular",                                 category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702565, name: "CO2 Cuello",                                     category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702566, name: "CO2 Cara y cuello",                              category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702567, name: "CO2 Cara, cuello y escote",                      category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702568, name: "CO2 Escote",                                     category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702569, name: "CO2 Verrugas",                                   category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+
+            // ============ Láser Vascular y Pigmentación ============
+            { id: 2702570, name: "IPL manchas faciales",                           category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702571, name: "IPL periocular",                                 category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702572, name: "Nd-Yag vascular",                                category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702573, name: "Eliminar tattoo",                                category: "Láser Vascular y Pigmentación", document: { base: "CI ELIMINACIÓN DE TATUAJES-ES 2026", expiryMonths: 12 } },
+            { id: 2702591, name: "Nd-Yag Puntos rubi x1",                          category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702592, name: "Nd-Yag Puntos rubi de 5 a 15",                   category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702593, name: "Nd-Yag Puntos rubi más de 15",                   category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702594, name: "Nd-Yag Arañas Vasculares x1",                    category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702595, name: "Nd-Yag Arañas Vasculares de 5 a 15",             category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702596, name: "Nd-Yag Arañas Vasculares más de 15",             category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702574, name: "Nd-Yag Venas Prioculares",                       category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+
+            // ============ Mesoterapia / PRGF / PRP ============
+            { id: 2702554, name: "Vitaminas NCTF 135 AH rostro",                   category: "Mesoterapia", document: { base: "CI MESOTERAPIA NTCF 135 HA-ES 2026", expiryMonths: 12 } },
+            { id: 2702555, name: "Vitaminas NCTF 135 AH periocular",               category: "Mesoterapia", document: { base: "CI MESOTERAPIA NTCF 135 HA-ES 2026", expiryMonths: 12 } },
+            { id: 2702556, name: "PRGF Facial",                                    category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
+            { id: 2702557, name: "PRGF Capilar",                                   category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
+            { id: 2702558, name: "PRGF COLIRIO",                                   category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
+            { id: 2702559, name: "Pack Vitaminas + PRGF",                          category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
+            { id: 2702616, name: "PRP Facial",                                     category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
+            { id: 2702617, name: "PRP Capilar",                                    category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
+            { id: 2702618, name: "Pack Vitaminas + PRP",                           category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
+
+            // ============ Marketing ============
+            { id: 2702615, name: "Colaboración",                                   category: "Marketing",   document: { base: "CI USO IMAGENES SONIDO ES 2026",     expiryMonths: 12 } },
+
+            // ============ Refractiva (sense document definit) ============
+            { id: 2702548, name: "Láser FemtoLasik – por ojo",                     category: "Refractiva",  document: null },
+            { id: 2702549, name: "Láser PRK – por ojo",                            category: "Refractiva",  document: null },
+            { id: 2702550, name: "Lentes ICL esférica – por ojo",                  category: "Refractiva",  document: null },
+            { id: 2702551, name: "Lentes ICL tórica – por ojo",                    category: "Refractiva",  document: null },
+
+            // ============ Tratamientos Faciales ============
+            { id: 2702611, name: "Reverso",                                        category: "Tratamientos Faciales", document: null },
+            { id: 2702538, name: "Microneedling con exosomas vegetales",           category: "Tratamientos Faciales", document: { base: "CI MICRONEEDLING ES 2026", expiryMonths: 12 } },
+            { id: 2702539, name: "Peeling médico cara",                            category: "Tratamientos Faciales", document: { base: "PEELING ES 2026",          expiryMonths: 12 } },
+            { id: 2702537, name: "Microneedling cara y cuello",                    category: "Tratamientos Faciales", document: { base: "CI MICRONEEDLING ES 2026", expiryMonths: 12 } },
+            { id: 2702540, name: "Hydrafacial Signature",                          category: "Tratamientos Faciales", document: { base: "CI HYDRAFACIAL ES 2026",   expiryMonths: 12 } },
+            { id: 2702541, name: "Hydrafacial Deluxe",                             category: "Tratamientos Faciales", document: { base: "CI HYDRAFACIAL ES 2026",   expiryMonths: 12 } },
+
+            // ============ Ultrasonidos HIFU ============
+            { id: 2702534, name: "Ultraformer MPT – Cara",                         category: "Tratamientos Faciales", document: { base: "CI ULTRAFORMER ES 2026",   expiryMonths: 12 } },
+            { id: 2702535, name: "Ultraformer MPT – Cuello / Papada",              category: "Tratamientos Faciales", document: { base: "CI ULTRAFORMER ES 2026",   expiryMonths: 12 } },
+            { id: 2702536, name: "Ultraformer MPT – Cara y cuello completo",       category: "Tratamientos Faciales", document: { base: "CI ULTRAFORMER ES 2026",   expiryMonths: 12 } },
+        ];
+
+        const BY_ID   = new Map();
+        const BY_NAME = new Map();
+        for (const t of TREATMENTS) {
+            if (t.id)   BY_ID.set(Number(t.id), t);
+            if (t.name) BY_NAME.set(String(t.name).toLowerCase().trim(), t);
+        }
+
+        function getById(id)   { return BY_ID.get(Number(id)) || null; }
+        function getByName(n)  { return n ? BY_NAME.get(String(n).toLowerCase().trim()) || null : null; }
+
+        /**
+         * Resol quin document + caducitat toca per un tractament.
+         * @param {{id?: number|string, name?: string}} key
+         * @returns {{ documentName: string, expiryMonths: number } | null}
+         */
+        function resolve(key) {
+            const entry =
+                (key.id != null && key.id !== "" && getById(key.id)) ||
+                (key.name && getByName(key.name));
+            if (!entry || !entry.document) return null;
+            return {
+                documentName: `${entry.document.base}_FIRMADO.pdf`,
+                expiryMonths: entry.document.expiryMonths,
+            };
+        }
+
+        return Object.freeze({
+            resolve,
+            getById,
+            getByName,
+            list: Object.freeze(TREATMENTS),
+        });
+    })();
+
+    /* =========================================================================
+     * 2. MÒDUL: invoiceStore
+     * ----------------------------------------------------------------------
+     * Llegeix `#invoice` quan apareix al DOM i manté el seu valor a la
+     * variable `current`. Com que la SPA el munta/desmunta en cada
+     * vista, fem servir `requestAnimationFrame` en bucle (en lloc d'un
+     * `setTimeout` finit) i cancel·lem la cerca quan arriba una nova.
+     * ======================================================================= */
+
+    const invoiceStore = (() => {
+        let currentInvoiceNo = null; // número de factura (p. ex. "17261")
+        let currentItemId = null;    // fallback: si #invoice fos un <select> d'items
+        let currentItemName = null;
+        let watchId = 0;
+
+        /**
+         * Comença a buscar l'element. Si ja n'existeix un cicle actiu,
+         * l'invalida (compara `myId` amb `watchId`).
+         */
+        function start() {
+            watchId += 1;
+            const myId = watchId;
+            tick(myId);
+        }
+
+        /** Reinicia el valor quan l'usuari canvia de vista. */
+        function reset() {
+            currentInvoiceNo = null;
+            currentItemId = null;
+            currentItemName = null;
+            start();
+        }
+
+        function tick(myId) {
+            if (myId !== watchId) return; // algú ha cancel·lat aquesta cerca
+            const el = document.querySelector(CONFIG.INVOICE_SELECTOR);
+            if (el) {
+                currentInvoiceNo = el.value;
+                if (el.options && el.options[el.selectedIndex]) {
+                    currentItemName = el.options[el.selectedIndex].text;
+                    currentItemId = el.value;
+                }
+                console.log("[Pabau LOPD] Invoice obtinguda:", {
+                    invoiceNo: currentInvoiceNo,
+                    itemId: currentItemId,
+                    itemName: currentItemName,
+                });
+                return;
+            }
+            // Tornem-ho a provar al pròxim frame; es cancel·la amb start().
+            requestAnimationFrame(() => tick(myId));
+        }
+
+        return {
+            start,
+            reset,
+            get invoiceNo() {
+                return currentInvoiceNo;
+            },
+            get itemId() {
+                return currentItemId;
+            },
+            get itemName() {
+                return currentItemName;
+            },
+        };
+    })();
+
+    /* =========================================================================
+     * 3. MÒDUL: routerWatcher
+     * ----------------------------------------------------------------------
+     * La SPA de Pabau navega sense recarregar. Capturem:
+     *   - history.pushState / replaceState (ho fa servir React Router)
+     *   - popstate (botons endavant/enrere del navegador)
+     * Cada cop que la URL canvia, notifiquem una subscripció.
+     * ======================================================================= */
+
+    const routerWatcher = (() => {
+        let lastHref = location.href;
+        const listeners = new Set();
+
+        function notify() {
+            const oldHref = lastHref;
+            const newHref = location.href;
+            if (newHref === oldHref) return;
+            lastHref = newHref;
+            console.log("[Pabau LOPD] Canvi de URL:", oldHref, "→", newHref);
+            listeners.forEach((fn) => fn({ oldHref, newHref }));
+        }
+
+        function install() {
+            ["pushState", "replaceState"].forEach((fnName) => {
+                const original = history[fnName];
+                history[fnName] = function (...args) {
+                    const result = original.apply(this, args);
+                    notify();
+                    return result;
+                };
+            });
+            window.addEventListener("popstate", notify);
+        }
+
+        function subscribe(fn) {
+            listeners.add(fn);
+            return () => listeners.delete(fn);
+        }
+
+        return { install, subscribe };
+    })();
+
+    /* =========================================================================
+     * 4. MÒDUL: apiKey
+     * ----------------------------------------------------------------------
+     * Emmagatzema la clau d'API amb TM_setValue (xifrada per Tampermonkey).
+     * Si no n'hi ha, la demana amb prompt(); ofereix un menú per canviar-la.
+     * ======================================================================= */
+
+    const apiKey = (() => {
+        function get() {
+            let key = GM_getValue(CONFIG.STORAGE_KEY, "");
+            if (!key) {
+                key = prompt(
+                    "Introdueix la teva API key de Pabau (es desarà xifrada):",
+                );
+                if (key) GM_setValue(CONFIG.STORAGE_KEY, key.trim());
+            }
+            return key;
+        }
+
+        function clear() {
+            GM_setValue(CONFIG.STORAGE_KEY, "");
+        }
+
+        function registerMenu() {
+            GM_registerMenuCommand("🔑 Modificar API key", () => {
+                // ⚠️ Per seguretat NO mostrem l'API key actual.
+                // L'usuari ha de tornar-la a teclejar sencera.
+                const next = prompt(
+                    "Nova API key (es deixa buit per seguretat — cal tornar-la a escriure):",
+                    "",
+                );
+                if (next && next.trim()) {
+                    GM_setValue(CONFIG.STORAGE_KEY, next.trim());
+                    alert("API key actualitzada. Recarrega la pàgina.");
+                }
+            });
+        }
+
+        return { get, clear, registerMenu };
+    })();
+
+    /* =========================================================================
+     * 5. MÒDUL: documentsApi
+     * ----------------------------------------------------------------------
+     * Encapsula la consulta a l'API de Pabau per saber si el client té
+     * LOPD_FIRMADO.pdf. Necessita `GM_xmlhttpRequest` per saltar CORS.
+     * ======================================================================= */
+
+    const documentsApi = (() => {
+        /**
+         * Cerca un document pel títol exacte dins els documents del client.
+         * Retorna TOTS els resultats (ordenats DESC per l'API) perquè el
+         * caller pugui decidir quin fer servir (p. ex. el més recent).
+         * @returns {Promise<{found: boolean, documents: Array, document: object|null}>}
+         */
+        function findDocument({ apiKey: key, clientId, documentName }) {
+            const url =
+                `${CONFIG.API_BASE}/${encodeURIComponent(key)}` +
+                `/clients/${clientId}/documents` +
+                `?order=DESC&per_page=50&page=1` +
+                `&search=${encodeURIComponent(documentName)}`;
+
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: "GET",
+                    url,
+                    headers: { Accept: "application/json" },
+                    onload: (res) => {
+                        if (res.status === 200) {
+                            try {
+                                const data = JSON.parse(res.responseText);
+                                const list =
+                                    data.documents ||
+                                    data.results ||
+                                    data.data ||
+                                    [];
+                                const target = documentName.toLowerCase();
+                                const matches = list.filter((d) => {
+                                    const name = (
+                                        d.photo_title ||
+                                        d.name ||
+                                        d.filename ||
+                                        d.title ||
+                                        ""
+                                    ).toLowerCase();
+                                    return name === target;
+                                });
+                                resolve({
+                                    found: matches.length > 0,
+                                    documents: matches,
+                                    document: matches[0] || null,
+                                });
+                            } catch (e) {
+                                reject(new Error("Resposta JSON no vàlida"));
+                            }
+                        } else if (res.status === 401 || res.status === 403) {
+                            apiKey.clear();
+                            reject(
+                                new Error("API key invàlida — s'ha esborrat"),
+                            );
+                        } else {
+                            reject(
+                                new Error(
+                                    `HTTP ${res.status}: ${res.statusText}`,
+                                ),
+                            );
+                        }
+                    },
+                    onerror: () => reject(new Error("Error de xarxa")),
+                });
+            });
+        }
+
+        return { findDocument };
+    })();
+
+    /* =========================================================================
+     * 5b. MÒDUL: invoiceApi
+     * ----------------------------------------------------------------------
+     * Consulta el detall d'una factura a partir del seu número
+     * (`inv_no`) i retorna els items normalitzats amb el document
+     * requerit ja resolt pel mapa `treatmentsConfig`.
+     * ======================================================================= */
+    const invoiceApi = (() => {
+        /**
+         * @returns {Promise<{found: boolean, items: Array, raw: object|null}>}
+         */
+        function getByInvoiceNo({ apiKey: key, invoiceNo }) {
+            const url =
+                `${CONFIG.API_BASE}/${encodeURIComponent(key)}` +
+                `/invoices?inv_no=${encodeURIComponent(invoiceNo)}`;
+
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: "GET",
+                    url,
+                    headers: { Accept: "application/json" },
+                    onload: (res) => {
+                        if (res.status === 200) {
+                            try {
+                                const data = JSON.parse(res.responseText);
+                                const list = data.invoices || [];
+                                if (list.length === 0) {
+                                    resolve({ found: false, items: [], raw: data });
+                                    return;
+                                }
+                                const inv = list[0];
+                                const rawItems = Array.isArray(inv.items) ? inv.items : [];
+                                const items = rawItems.map((it) => {
+                                    const tx =
+                                        treatmentsConfig.getById(it.product_id) ||
+                                        treatmentsConfig.getByName(it.item_name);
+                                    return {
+                                        product_id: it.product_id,
+                                        item_name: it.item_name,
+                                        category: it.category,
+                                        document:
+                                            tx && tx.document
+                                                ? {
+                                                      base: tx.document.base,
+                                                      expiryMonths:
+                                                          tx.document.expiryMonths,
+                                                  }
+                                                : null,
+                                    };
+                                });
+                                resolve({ found: true, items, raw: inv });
+                            } catch (e) {
+                                reject(
+                                    new Error(
+                                        "Resposta /invoices no vàlida: " + e.message,
+                                    ),
+                                );
+                            }
+                        } else if (res.status === 401 || res.status === 403) {
+                            apiKey.clear();
+                            reject(new Error("API key invàlida — s'ha esborrat"));
+                        } else {
+                            reject(
+                                new Error(
+                                    `HTTP ${res.status}: ${res.statusText}`,
+                                ),
+                            );
+                        }
+                    },
+                    onerror: () => reject(new Error("Error de xarxa")),
+                });
+            });
+        }
+
+        return { getByInvoiceNo };
+    })();
+
+    /* =========================================================================
+     * 5c. MÒDUL: invoiceLookup
+     * ----------------------------------------------------------------------
+     * Per a una factura donada:
+     *   1. Crida /invoices?inv_no=...
+     *   2. Construeix el llistat ÚNIC de documents requerits:
+     *        - LOPD_FIRMADO.pdf (sempre, sense caducitat)
+     *        - Els documents associats als tractaments, deduplicats per base
+     *   3. Per cada document requerit consulta /clients/{id}/documents i es
+     *      queda amb la coincidència més nova (ordenada DESC per l'API).
+     *   4. Avalua caducitat sobre `documents[0].date`.
+     * ======================================================================= */
+    const invoiceLookup = (() => {
+        /** Formata una data de l'API ("YYYY-MM-DD HH:MM:SS") a "DD/MM/YYYY". */
+        function formatDate(dateStr) {
+            if (!dateStr) return null;
+            const d = new Date(String(dateStr).replace(" ", "T"));
+            if (Number.isNaN(d.getTime())) return null;
+            const day = String(d.getDate()).padStart(2, "0");
+            const month = String(d.getMonth() + 1).padStart(2, "0");
+            return `${day}/${month}/${d.getFullYear()}`;
+        }
+
+        /** Comprova si el document està caducat. expiryMonths<=0 = no caduca. */
+        function isExpired(dateStr, expiryMonths) {
+            if (!expiryMonths || expiryMonths <= 0) return false;
+            if (!dateStr) return true;
+            // Format esperat: "2026-07-02 18:03:05" → cal substituir l'espai per "T"
+            const d = new Date(String(dateStr).replace(" ", "T"));
+            if (Number.isNaN(d.getTime())) return true;
+            const expiry = new Date(d);
+            expiry.setMonth(expiry.getMonth() + Number(expiryMonths));
+            return new Date() > expiry;
+        }
+
+        /** Diferència en mesos entre dues dates (enter positiu). */
+        function monthsSince(dateStr) {
+            if (!dateStr) return null;
+            const d = new Date(String(dateStr).replace(" ", "T"));
+            if (Number.isNaN(d.getTime())) return null;
+            const now = new Date();
+            return (
+                (now.getFullYear() - d.getFullYear()) * 12 +
+                (now.getMonth() - d.getMonth())
+            );
+        }
+
+        /** Constrou el llistat ÚNIC de papers: LOPD 1 cop + 1 per base de tractament. */
+        function buildRequiredFromItems(items) {
+            const byBase = new Map();
+            for (const it of items) {
+                if (!it.document) continue;
+                const { base, expiryMonths } = it.document;
+                if (byBase.has(base)) continue;
+                byBase.set(base, {
+                    base,
+                    documentName: `${base}_FIRMADO.pdf`,
+                    expiryMonths,
+                });
+            }
+            return [
+                {
+                    documentName: CONFIG.LOPD_DOCUMENT,
+                    base: CONFIG.LOPD_DOCUMENT,
+                    expiryMonths: 0,
+                    kind: "lopd",
+                },
+                ...[...byBase.values()].map((d) => ({
+                    ...d,
+                    kind: "treatment",
+                })),
+            ];
+        }
+
+        /**
+         * Fa tota la validació d'una factura.
+         * @returns {Promise<{
+         *   found: boolean,
+         *   items: Array,
+         *   required: Array,
+         *   issues: Array<{kind: string, name: string, scope: string, createdAt: string|null, monthsOld: number|null}>,
+         *   raw: object|null
+         * }>}
+         */
+        async function checkInvoice({ apiKey: key, clientId, invoiceNo }) {
+            const { found, items, raw } = await invoiceApi.getByInvoiceNo({
+                apiKey: key,
+                invoiceNo,
+            });
+            if (!found) {
+                return {
+                    found,
+                    items: [],
+                    required: [],
+                    issues: [
+                        {
+                            kind: "missing",
+                            name: `Factura ${invoiceNo}`,
+                            scope: "invoice",
+                            createdAt: null,
+                            monthsOld: null,
+                        },
+                    ],
+                    raw,
+                };
+            }
+
+            const required = buildRequiredFromItems(items);
+
+            // Una sola crida per paper requerit, en paral·lel.
+            const checks = await Promise.all(
+                required.map(async (req) => {
+                    try {
+                        const r = await documentsApi.findDocument({
+                            apiKey: key,
+                            clientId,
+                            documentName: req.documentName,
+                        });
+                        // El caller es queda amb la coincidència més nova
+                        // (l'API ja torna DESC).
+                        const top = r.document || null;
+                        const createdAt = top ? top.date || null : null;
+                        const expired =
+                            !!top && isExpired(createdAt, req.expiryMonths);
+                        return {
+                            req,
+                            doc: top,
+                            found: !!top,
+                            expired,
+                            createdAt,
+                        };
+                    } catch (err) {
+                        console.error(
+                            `[Pabau LOPD] Error consultant ${req.documentName}:`,
+                            err,
+                        );
+                        return {
+                            req,
+                            doc: null,
+                            found: false,
+                            expired: false,
+                            createdAt: null,
+                            error: err,
+                        };
+                    }
+                }),
+            );
+
+            const issues = checks
+                .filter(({ found, expired }) => !found || expired)
+                .map(({ req, found, expired, createdAt }) => ({
+                    kind: !found ? "missing" : "expired",
+                    name: req.documentName,
+                    scope: req.kind, // "lopd" | "treatment"
+                    createdAt,
+                    monthsOld: monthsSince(createdAt),
+                }));
+
+            return { found: true, items, required, issues, raw };
+        }
+
+        return { checkInvoice, buildRequiredFromItems, isExpired, monthsSince, formatDate };
+    })();
+
+    /* =========================================================================
+     * 6. MÒDUL: buttonGuard
+     * ----------------------------------------------------------------------
+     * Fa la part visual: pintar el botó en vermell i deshabilitar-lo.
+     * També ofereix la neteja (revertir a l'estat original) quan l'usuari
+     * canvia de vista.
+     * ======================================================================= */
+
+    const buttonGuard = (() => {
+        /**
+         * @param {string} [customLabel] - Text a mostrar al botó.
+         * @param {string} [tooltip]     - Text per l'atribut `title` (tooltip natiu).
+         */
+        function block(customLabel, tooltip) {
+            // NOTA: ja no exigim #invoice aquí. La decisió de bloquejar
+            // la pren `invoiceGuard.process` quan té un `invoiceNo` vàlid.
+
+            const btn = document.querySelector(CONFIG.BUTTON_SELECTOR);
+            if (!btn) return;
+
+            const label = btn.querySelector("p") || btn;
+            const finalLabel = customLabel || CONFIG.BLOCKED_LABEL;
+            const finalTooltip = tooltip || "";
+
+            // Si ja està bloquejat AMB EL TEXT/TITLE VISIBLES correctes, no
+            // hi tornem. Comparem contra l'estat VISIBLE (no pas contra els
+            // datasets), perquè el caller (`invoiceGuard.process`) ja els
+            // actualitza ABANS de cridar block() — retornar aquí faria que el
+            // text/tooltip del botó no s'actualitzessin mai (és exactament
+            // el bug que es veu a la consola: datasets nous però <p> encara
+            // amb "Consultando documentación..." i title="").
+            if (
+                btn.dataset.lopdBlocked === "true" &&
+                label.textContent === finalLabel &&
+                btn.title === finalTooltip
+            ) {
+                return;
+            }
+
+            label.textContent = finalLabel;
+            btn.title = finalTooltip;
+
+            Object.assign(btn.style, {
+                backgroundColor: "#dc3545",
+                borderColor: "#dc3545",
+                color: "#ffffff",
+                opacity: "0.85",
+                cursor: "not-allowed",
+            });
+
+            btn.disabled = true;
+            btn.dataset.lopdBlocked = "true";
+            btn.dataset.lopdLabel = finalLabel;
+            btn.dataset.lopdTooltip = finalTooltip;
+            console.log("[Pabau LOPD] Botó bloquejat:", finalLabel, btn);
+        }
+
+        function unblockAll() {
+            document
+                .querySelectorAll(
+                    `${CONFIG.BUTTON_SELECTOR}[data-lopd-blocked]`,
+                )
+                .forEach((b) => {
+                    delete b.dataset.lopdBlocked;
+                    delete b.dataset.lopdChecked;
+                    delete b.dataset.lopdKey;
+                    delete b.dataset.lopdLabel;
+                    delete b.dataset.lopdTooltip;
+                    b.title = "";
+                    b.disabled = false;
+                    b.style.cssText = "";
+                });
+        }
+
+        return { block, unblockAll };
+    })();
+
+    /* =========================================================================
+     * 7. MÒDUL: invoiceGuard
+     * ----------------------------------------------------------------------
+     * Orquestrador: per a cada vista de la SPA, decideix si cal bloquejar
+     * el botó "Guardar cambios". Manté una memòria de vistes ja comprovades
+     * (Set indexat per `clientId|pathname+search`) per no repetir crides
+     * a l'API innecessàriament.
+     *
+     * Flux:
+     *   1. Router notifica un canvi d'URL.
+     *   2. Netejem l'estat del botó anterior.
+     *   3. Si hem canviat de client, buidem la memòria.
+     *   4. El MutationObserver del DOM detecta quan apareix el botó i
+     *      crida `process()`. Si la vista ja s'ha processat, només
+     *      reaplica el bloqueig; si no, consulta l'API un sol cop.
+     * ======================================================================= */
+
+    const invoiceGuard = (() => {
+        const processedViews = new Set(); // memo: clientId|invoiceNo
+        const buttonObservers = new WeakMap(); // btn -> MutationObserver
+        let inFlight = null; // Promise de la validació en curs (per evitar duplicats)
+
+        function clientIdFromPath(pathname) {
+            const m = pathname.match(/^\/clients\/(\d+)\//);
+            return m ? m[1] : null;
+        }
+
+        /** Neteja estats quan es canvia de vista o de client. */
+        function handleNavigation({ oldHref }) {
+            buttonGuard.unblockAll();
+            invoiceStore.reset();
+
+            const oldClient = clientIdFromPath(new URL(oldHref).pathname);
+            const newClient = clientIdFromPath(location.pathname);
+            if (oldClient !== newClient) processedViews.clear();
+        }
+
+        /** Format amigable d'un issue per al tooltip. */
+        function fmtIssue(i) {
+            const tag = i.scope === "lopd" ? "[LOPD] " : "[CI] ";
+
+            if (i.kind === "missing") {
+                // No tenim cap registre d'aquest document al client.
+                return `${tag}${i.name} · No encontrado`;
+            }
+
+            // kind === "expired": el document existeix però ha caducat.
+            const date = invoiceLookup.formatDate(i.createdAt);
+            const when = date ? `subido el ${date}` : "fecha de subida desconocida";
+            const months = i.monthsOld != null ? ` (hace ${i.monthsOld} meses)` : "";
+            return `${tag}${i.name} · Caducado · ${when}${months}`;
+        }
+
+        /**
+         * Text curt que es mostra al botó.
+         * SEMPRE té el format "Faltan/caducan N documentos" (independentment
+         * del nombre d'issues). El detall va al tooltip.
+         */
+        function buildLabel(result) {
+            const issues = (result && result.issues) || [];
+            if (issues.length === 0) return null;
+            return `Faltan/caducan ${issues.length} documentos`;
+        }
+
+        /**
+         * Text llarg que es mostra al `title` del botó (tooltip natiu).
+         * Llista cada issue separat per " · ".
+         */
+        function buildTooltip(result) {
+            const issues = (result && result.issues) || [];
+            if (issues.length === 0) return null;
+            return issues.map(fmtIssue).join(" · ");
+        }
+
+        /**
+         * Punt d'entrada del DOM observer; idempotent.
+         * Flux:
+         *   1. Si no tenim #invoice → esperem.
+         *   2. Calculem cacheKey = clientId|invoiceNo.
+         *   3. Bloquegem el botó AMB CONSULTA (evita que l'usuari cliqui
+         *      mentre es fan les crides a l'API).
+         *   4. Si ja tenim el resultat en memòria → reapliquem el botó.
+         *   5. Si ja hi ha una consulta en vol per la mateixa clau → esperem-la.
+         *   6. Sinó: invoquem invoiceLookup.checkInvoice.
+         */
+        async function process({ apiKey: key, clientId }) {
+            const btn = document.querySelector(CONFIG.BUTTON_SELECTOR);
+            if (!btn) return;
+
+            const invoiceNo = invoiceStore.invoiceNo;
+            if (!invoiceNo) return; // encara no tenim número de factura
+
+            const cacheKey = `${clientId}|${invoiceNo}`;
+
+            // 1) Ja hem marcat aquesta combinació al botó → no fem res.
+            if (btn.dataset.lopdKey === cacheKey) return;
+
+            // 2) Ja tenim el resultat a memòria → reapliquem (no cal consultar).
+            if (processedViews.has(cacheKey)) {
+                btn.dataset.lopdKey = cacheKey;
+                buttonGuard.block(
+                    btn.dataset.lopdLabel || CONFIG.BLOCKED_LABEL,
+                    btn.dataset.lopdTooltip || "",
+                );
+                return;
+            }
+
+            // 3) Bloquegem immediatament amb el text de "consultant"
+            //    perquè l'usuari no pugui prémer el botó durant les crides.
+            //    Marquem el botó amb el cacheKey per evitar duplicar feina.
+            buttonGuard.block(CONFIG.CONSULTING_LABEL, "");
+            btn.dataset.lopdKey = cacheKey;
+            btn.dataset.lopdLabel = CONFIG.CONSULTING_LABEL;
+            btn.dataset.lopdTooltip = "";
+
+            // 4) Si ja hi ha una validació en curs per la mateixa combinació
+            //    → esperem-la i reapliquem el resultat.
+            if (inFlight && inFlight.key === cacheKey) {
+                await inFlight.promise;
+                buttonGuard.block(
+                    btn.dataset.lopdLabel || CONFIG.BLOCKED_LABEL,
+                    btn.dataset.lopdTooltip || "",
+                );
+                return;
+            }
+
+            // 5) Llancem la validació.
+            const p = (async () => {
+                try {
+                    return await invoiceLookup.checkInvoice({
+                        apiKey: key,
+                        clientId,
+                        invoiceNo,
+                    });
+                } catch (err) {
+                    console.error(
+                        "[Pabau LOPD] Error consultant la factura:",
+                        err,
+                    );
+                    // Política del README: error de xarxa → NO bloquegem.
+                    return { found: false, items: [], required: [], issues: [], error: err };
+                }
+            })();
+            inFlight = { key: cacheKey, promise: p };
+            const result = await p;
+            inFlight = null;
+
+            processedViews.add(cacheKey);
+
+            const label = buildLabel(result);
+            const tooltip = buildTooltip(result);
+            console.log(
+                `[Pabau LOPD] Client ${clientId} · factura ${invoiceNo} →`,
+                {
+                    items: (result.items || []).map((it) => it.item_name),
+                    issues: (result.issues || []).length,
+                    label,
+                    tooltip,
+                },
+            );
+
+            if (label) {
+                btn.dataset.lopdLabel = label;
+                btn.dataset.lopdTooltip = tooltip || "";
+                buttonGuard.block(label, tooltip);
+
+                // Si React remunta el botó, el tornem a bloquejar amb el
+                // label/tooltip que ja hem desat al dataset.
+                if (!buttonObservers.has(btn)) {
+                    const mo = new MutationObserver(() => {
+                        const fresh = document.querySelector(
+                            CONFIG.BUTTON_SELECTOR,
+                        );
+                        if (fresh && !fresh.dataset.lopdBlocked) {
+                            buttonGuard.block(
+                                fresh.dataset.lopdLabel ||
+                                    CONFIG.BLOCKED_LABEL,
+                                fresh.dataset.lopdTooltip || "",
+                            );
+                        }
+                    });
+                    mo.observe(document.body, {
+                        childList: true,
+                        subtree: true,
+                    });
+                    buttonObservers.set(btn, mo);
+                }
+            } else {
+                btn.dataset.lopdLabel = "";
+                btn.dataset.lopdTooltip = "";
+                buttonGuard.unblockAll();
+            }
+        }
+
+        /**
+         * Instal·la el routerWatcher i el DOM observer.
+         */
+        function install({ apiKey: key }) {
+            routerWatcher.subscribe(handleNavigation);
+
+            // Reaccionar a qualsevol muntatge/desmuntatge del botó o del #invoice.
+            const ensureDom = () => {
+                const clientId = clientIdFromPath(location.pathname);
+                if (!clientId) return;
+                process({ apiKey: key, clientId });
+            };
+
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", ensureDom);
+            } else {
+                ensureDom();
+            }
+            const mo = new MutationObserver(ensureDom);
+            mo.observe(document.body, { childList: true, subtree: true });
+        }
+
+        return { install };
+    })();
+
+    /* =========================================================================
+     * 8. BOOTSTRAP
+     * ----------------------------------------------------------------------
+     * Punt d'entrada: valida la URL, carrega l'API key i connecta tots
+     * els mòduls. Si la pàgina no conté `?referrer=...`, no fem res.
+     * ======================================================================= */
+
+    function bootstrap() {
+        // Log de diagnòstic: si NO veus això a la consola, l'script no s'injecta
+        console.log(
+            "%c[Pabau LOPD] Bootstrap iniciat a " + location.href,
+            "background:#28a745;color:#fff;padding:2px 6px;border-radius:3px;",
+        );
+
+        const url = new URL(window.location.href);
+        // El @match cobreix tota l'app Pabau, però el bloqueig del botó
+        // només s'aplica quan location.pathname és /clients/<id>/...
+        // (ho gestiona invoiceGuard.process → clientIdFromPath).
+        // Per tant NO fem return aquí: hem d'instal·lar sempre el
+        // routerWatcher i l'invoiceGuard per reaccionar a la navegació SPA.
+
+        const key = apiKey.get();
+        if (!key) {
+            console.error("[Pabau LOPD] No s'ha proporcionat API key.");
+            return;
+        }
+
+        apiKey.registerMenu();
+        routerWatcher.install();
+
+        // Llancem la cerca inicial del #invoice quan el body existeixi.
+        if (document.body) {
+            invoiceStore.start();
+        } else {
+            document.addEventListener("DOMContentLoaded", () =>
+                invoiceStore.start(),
+            );
+        }
+
+        invoiceGuard.install({ apiKey: key });
+        const initialClientId = location.pathname.match(/^\/clients\/(\d+)\//);
+        console.log(
+            `[Pabau LOPD] Bootstrap complet${
+                initialClientId ? ` per al client ${initialClientId[1]}` : ""
+            } (referrer=${url.searchParams.get("referrer")})`,
+        );
+        // Reaccionar també a canvis de valor de #invoice un cop muntat
+        // (Pabau pot injectar-lo més tard que el #operation-create).
+        const invoiceObserver = new MutationObserver(() => {
+            const el = document.querySelector(CONFIG.INVOICE_SELECTOR);
+            if (el && el.value && !el.dataset.lopdWatched) {
+                el.dataset.lopdWatched = "1";
+                el.dispatchEvent(new Event("change", { bubbles: true }));
+            }
+        });
+        invoiceObserver.observe(document.body, {
+            childList: true,
+            subtree: true,
+        });
+    }
+
+    bootstrap();
+})();
