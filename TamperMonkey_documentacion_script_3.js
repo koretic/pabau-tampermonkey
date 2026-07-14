@@ -157,15 +157,15 @@
             { id: 2702574, name: "Nd-Yag Venas Prioculares",                       category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
 
             // ============ Mesoterapia / PRGF / PRP ============
-            { id: 2702554, name: "Vitaminas NCTF 135 AH rostro",                   category: "Mesoterapia", document: { base: "CI MESOTERAPIA NTCF 135 HA-ES 2026", expiryMonths: 12 } },
-            { id: 2702555, name: "Vitaminas NCTF 135 AH periocular",               category: "Mesoterapia", document: { base: "CI MESOTERAPIA NTCF 135 HA-ES 2026", expiryMonths: 12 } },
+            { id: 2702554, name: "Vitaminas NCTF 135 AH rostro",                   category: "Mesoterapia", document: { base: "CI MESOTERAPIA CON VITAMINAS ES 2026", expiryMonths: 12 } },
+            { id: 2702555, name: "Vitaminas NCTF 135 AH periocular",               category: "Mesoterapia", document: { base: "CI MESOTERAPIA CON VITAMINAS ES 2026", expiryMonths: 12 } },
             { id: 2702556, name: "PRGF Facial",                                    category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
             { id: 2702557, name: "PRGF Capilar",                                   category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
             { id: 2702558, name: "PRGF COLIRIO",                                   category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
             { id: 2702559, name: "Pack Vitaminas + PRGF",                          category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
-            { id: 2702616, name: "PRP Facial",                                     category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
-            { id: 2702617, name: "PRP Capilar",                                    category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
-            { id: 2702618, name: "Pack Vitaminas + PRP",                           category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
+            { id: 2702616, name: "PRP Facial",                                     category: "Mesoterapia", document: { base: "CI PRP ES 2026",                    expiryMonths: 12 } },
+            { id: 2702617, name: "PRP Capilar",                                    category: "Mesoterapia", document: { base: "CI PRP ES 2026",                    expiryMonths: 12 } },
+            { id: 2702618, name: "Pack Vitaminas + PRP",                           category: "Mesoterapia", document: { base: "CI PRP ES 2026",                    expiryMonths: 12 } },
 
             // ============ Marketing ============
             { id: 2702615, name: "Colaboración",                                   category: "Marketing",   document: { base: "CI USO IMAGENES SONIDO ES 2026",     expiryMonths: 12 } },
@@ -177,7 +177,7 @@
             { id: 2702551, name: "Lentes ICL tórica – por ojo",                    category: "Refractiva",  document: null },
 
             // ============ Tratamientos Faciales ============
-            { id: 2702611, name: "Reverso",                                        category: "Tratamientos Faciales", document: null },
+            { id: 2702611, name: "Reverso",                                        category: "Tratamientos Faciales", document: { base: "CI RADIOFRECUENCIA CON MICROAGUJAS", expiryMonths: 12 } },
             { id: 2702538, name: "Microneedling con exosomas vegetales",           category: "Tratamientos Faciales", document: { base: "CI MICRONEEDLING ES 2026", expiryMonths: 12 } },
             { id: 2702539, name: "Peeling médico cara",                            category: "Tratamientos Faciales", document: { base: "PEELING ES 2026",          expiryMonths: 12 } },
             { id: 2702537, name: "Microneedling cara y cuello",                    category: "Tratamientos Faciales", document: { base: "CI MICRONEEDLING ES 2026", expiryMonths: 12 } },
@@ -845,6 +845,70 @@
             return true;
         }
 
+        /**
+         * Habilita els botons de pagament (perquè tota la documentació
+         * està OK). Fa la inversa exacta de `blockPaymentButtons`.
+         *
+         * IMPORTANT: només s'ha de cridar quan el process() ha
+         * confirmat que NO hi ha cap issue. Si no, els botons han
+         * de quedar sempre bloquejats.
+         */
+        function unblockPaymentButtons() {
+            const btns = document.querySelectorAll(
+                CONFIG.PAYMENT_BUTTON_SELECTORS,
+            );
+            for (const b of btns) {
+                // Seguretat: només toquem els del panell de pagaments.
+                const inFooter = b.closest(CONFIG.PAYMENT_FOOTER_SELECTOR);
+                if (!inFooter) continue;
+                if (b.dataset.lopdBlocked === "true") {
+                    delete b.dataset.lopdBlocked;
+                    delete b.dataset.lopdTooltip;
+                }
+                b.title = "";
+                b.disabled = false;
+                b.style.cursor = "";
+            }
+        }
+
+        /**
+         * Versió "instantània" del bloqueig: sense comprovar idempotència,
+         * sense canviar el text. Pensada per ser cridada des d'un
+         * MutationObserver que acaba de detectar que els botons acaben
+         * de ser muntats al DOM. Sempre bloquegi.
+         */
+        function forceBlockAllPaymentButtons(tooltip) {
+            const tt = tooltip || "Revisando documentación...";
+            const btns = document.querySelectorAll(
+                CONFIG.PAYMENT_BUTTON_SELECTORS,
+            );
+            for (const b of btns) {
+                const inFooter = b.closest(CONFIG.PAYMENT_FOOTER_SELECTOR);
+                if (!inFooter) continue;
+                b.disabled = true;
+                b.title = tt;
+                b.dataset.lopdBlocked = "true";
+                b.dataset.lopdTooltip = tt;
+                b.dataset.lopdKey = "payment";
+                b.style.cursor = "not-allowed";
+                // Listener de seguretat (idempotent)
+                if (!b.dataset.lopdGuard) {
+                    b.dataset.lopdGuard = "1";
+                    b.addEventListener(
+                        "click",
+                        (ev) => {
+                            if (b.dataset.lopdBlocked === "true") {
+                                ev.preventDefault();
+                                ev.stopPropagation();
+                                ev.stopImmediatePropagation();
+                            }
+                        },
+                        true,
+                    );
+                }
+            }
+        }
+
         function unblockAll() {
             // 1) Botó principal (text + estils vermells)
             const main = document.querySelector(
@@ -852,24 +916,40 @@
             );
             if (main) unblockOne(main);
 
-            // 2) Botons de pagament (només disabled + title)
+            // 2) Botons de pagament: per defecte SEMPRE deshabilitats.
+            //    Només s'habilitaran explícitament quan el process()
+            //    confirmi que tota la documentació és correcta.
+            //    Si l'usuari surt del panel, els tornem a bloquejar
+            //    com a mesura de seguretat.
+            blockPaymentButtons(
+                "Revisando documentación...",
+            );
+
+            // 3) IMPORTANT: netejar TOTS els marcadors de lopd al DOM,
+            //    no només als elements actualment bloquejats. Si el botó
+            //    principal ja no té [data-lopd-blocked] però encara té
+            //    [data-lopd-checked] o [data-lopd-key], la propera
+            //    crida a process() pensarà que ja està processat i NO
+            //    tornarà a bloquejar res quan l'usuari torni al panel.
             document
                 .querySelectorAll(
-                    `${CONFIG.PAYMENT_BUTTON_SELECTORS}[data-lopd-blocked]`,
+                    `${CONFIG.BUTTON_SELECTOR}[data-lopd-key], ${CONFIG.BUTTON_SELECTOR}[data-lopd-checked]`,
                 )
                 .forEach((b) => {
-                    if (b.dataset.lopdBlocked !== "true") return;
-                    delete b.dataset.lopdBlocked;
+                    delete b.dataset.lopdKey;
+                    delete b.dataset.lopdChecked;
+                    delete b.dataset.lopdLabel;
                     delete b.dataset.lopdTooltip;
-                    // No esborrem lopdGuard: el listener segueix actiu
-                    // però només actua si el botó torna a estar bloquejat.
-                    b.title = "";
-                    b.disabled = false;
-                    b.style.cursor = "";
                 });
         }
 
-        return { block, blockPaymentButtons, unblockAll };
+        return {
+            block,
+            blockPaymentButtons,
+            unblockPaymentButtons,
+            forceBlockAllPaymentButtons,
+            unblockAll,
+        };
     })();
 
     /* =========================================================================
@@ -893,6 +973,7 @@
         const processedViews = new Set(); // memo: clientId|invoiceNo
         let inFlight = null; // Promise de la validació en curs (per evitar duplicats)
         let tabObserver = null; // MutationObserver dedicat als panels rc-tabs
+        let paymentFooterObserver = null; // MutationObserver del contenidor de botons de pagament
 
         /**
          * Comprova si el panel de pagaments (3a pestanya de la pàgina
@@ -1013,24 +1094,43 @@
 
             const cacheKey = `${clientId}|${invoiceNo}`;
 
-            // 1) Ja hem marcat aquesta combinació al botó → no fem res.
-            if (btn.dataset.lopdKey === cacheKey) return;
+            // 1) Ja estem processant aquesta combinació en aquest botó
+            //    concret → no fem res. Usem `lopdChecked` (no pas
+            //    `lopdKey`) perquè l'`unblockAll()` esborra TOTS els
+            //    marcadors en sortir del panel, de manera que quan
+            //    l'usuari TORN al panel, `lopdChecked` és undefined i
+            //    podem tornar a aplicar el bloqueig.
+            if (btn.dataset.lopdChecked === cacheKey) return;
 
             // 2) Ja tenim el resultat a memòria → reapliquem (no cal consultar).
             if (processedViews.has(cacheKey)) {
-                btn.dataset.lopdKey = cacheKey;
+                btn.dataset.lopdChecked = cacheKey;
                 buttonGuard.block(
                     btn.dataset.lopdLabel || CONFIG.BLOCKED_LABEL,
                     btn.dataset.lopdTooltip || "",
                 );
+                // També reapliquem els botons de pagament amb el text
+                // desat als datasets (no tornem a consultar l'API).
+                // Si no hi havia cap label desat, vol dir que la factura
+                // estava OK → habilitem els botons.
+                if (btn.dataset.lopdLabel) {
+                    buttonGuard.blockPaymentButtons(
+                        btn.dataset.lopdTooltip || "",
+                    );
+                } else {
+                    buttonGuard.unblockPaymentButtons();
+                }
                 return;
             }
 
             // 3) Bloquegem immediatament amb el text de "consultant"
             //    perquè l'usuari no pugui prémer el botó durant les crides.
+            //    També bloquegem els botons de pagament (sempre deshabilitats
+            //    per defecte; només s'habilitaran si la validació és OK).
             //    Marquem el botó amb el cacheKey per evitar duplicar feina.
             buttonGuard.block(CONFIG.CONSULTING_LABEL, "");
-            btn.dataset.lopdKey = cacheKey;
+            buttonGuard.blockPaymentButtons(CONFIG.CONSULTING_LABEL);
+            btn.dataset.lopdChecked = cacheKey;
             btn.dataset.lopdLabel = CONFIG.CONSULTING_LABEL;
             btn.dataset.lopdTooltip = "";
 
@@ -1042,6 +1142,13 @@
                     btn.dataset.lopdLabel || CONFIG.BLOCKED_LABEL,
                     btn.dataset.lopdTooltip || "",
                 );
+                if (btn.dataset.lopdLabel) {
+                    buttonGuard.blockPaymentButtons(
+                        btn.dataset.lopdTooltip || "",
+                    );
+                } else {
+                    buttonGuard.unblockPaymentButtons();
+                }
                 return;
             }
 
@@ -1104,9 +1211,17 @@
                 // rc-tabs-*-panel-2 segueix sent al DOM, només ha canviat
                 // el seu aria-hidden).
             } else {
+                // Tota la documentació és correcta → habilitem els
+                // botons de pagament (fins ara estaven deshabilitats
+                // per defecte). El botó principal ja estava correcte.
                 btn.dataset.lopdLabel = "";
                 btn.dataset.lopdTooltip = "";
-                buttonGuard.unblockAll();
+                btn.style.cssText = "";
+                btn.disabled = false;
+                btn.title = "";
+                delete btn.dataset.lopdBlocked;
+                delete btn.dataset.lopdKey;
+                buttonGuard.unblockPaymentButtons();
             }
         }
 
@@ -1128,6 +1243,15 @@
                     buttonGuard.unblockAll();
                     return;
                 }
+
+                // IMPORTANT: bloqueig preventiu IMMEDIAT dels botons
+                // de pagament, perquè estiguin deshabilitats des del
+                // primer instant que es mostren al DOM. Si esperem
+                // a `process()` (que pot trigar uns ms a arribar),
+                // l'usuari podria clicar un botó encara no validat.
+                buttonGuard.forceBlockAllPaymentButtons(
+                    "Revisando documentación...",
+                );
 
                 process({ apiKey: key, clientId });
             };
@@ -1167,6 +1291,53 @@
                 subscribeTabPanels();
             });
             tabResub.observe(document.body, { childList: true, subtree: true });
+
+            // -----------------------------------------------------------------
+            // OBSERVER DEDICAT AL CONTENIDOR DE BOTONS DE PAGAMENT
+            // -----------------------------------------------------------------
+            // Cada vegada que React/Pabau munta o desmunta botons dins
+            // del footer, els bloquegem AL MOMENT. Així, encara que el
+            // usuari cliqui una tab i torni abans que process() acabi,
+            // els botons nous ja estan deshabilitats.
+            const subscribePaymentFooter = () => {
+                if (paymentFooterObserver) {
+                    paymentFooterObserver.disconnect();
+                }
+                paymentFooterObserver = new MutationObserver(() => {
+                    // Només actuem si el panel de pagaments és l'actual
+                    if (!isPaymentTabActive()) return;
+                    // Bloquegem TOTS els botons trobats, amb el
+                    // missatge genèric. `process()` ja s'encarregarà
+                    // d'afinar el missatge després.
+                    buttonGuard.forceBlockAllPaymentButtons(
+                        "Revisando documentación...",
+                    );
+                });
+                const footer = document.querySelector(
+                    CONFIG.PAYMENT_FOOTER_SELECTOR,
+                );
+                if (footer) {
+                    paymentFooterObserver.observe(footer, {
+                        childList: true,
+                        subtree: true,
+                    });
+                }
+            };
+            subscribePaymentFooter();
+
+            // Re-subscriure quan el contenidor aparegui/s desaparegui.
+            const paymentFooterResub = new MutationObserver(() => {
+                const footer = document.querySelector(
+                    CONFIG.PAYMENT_FOOTER_SELECTOR,
+                );
+                if (footer && !paymentFooterObserver) {
+                    subscribePaymentFooter();
+                }
+            });
+            paymentFooterResub.observe(document.body, {
+                childList: true,
+                subtree: true,
+            });
         }
 
         return { install };
