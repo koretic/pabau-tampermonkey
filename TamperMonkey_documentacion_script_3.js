@@ -1060,12 +1060,14 @@
 
         /**
          * Text llarg que es mostra al `title` del botó (tooltip natiu).
-         * Llista cada issue separat per " · ".
+         * Cada issue va en una LÍNIA nova (`\n`); els navegadors moderns
+         * (Chrome/Firefox/Edge/Safari) respecten els salts de línia al
+         * tooltip natiu i els mostren com a línies separades.
          */
         function buildTooltip(result) {
             const issues = (result && result.issues) || [];
             if (issues.length === 0) return null;
-            return issues.map(fmtIssue).join(" · ");
+            return issues.map(fmtIssue).join("\n");
         }
 
         /**
