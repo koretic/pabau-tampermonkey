@@ -48,6 +48,34 @@
         // Text que es mostra al botó mentre s'està consultant l'API.
         // El botó ja queda disabled; el text és purament informatiu.
         CONSULTING_LABEL: "Consultando documentación...",
+        // Panel de pagaments (3a pestanya de /financial, índex 2).
+        // El bloqueig del botó "Guardar cambios" NOMÉS s'aplica quan
+        // aquest panel està actiu (aria-hidden="false"). Si no existeix
+        // encara, el MutationObserver del bootstrap segueix escoltant
+        // fins que aparegui (no és un push a una altra pàgina, són
+        // tabs dins la mateixa pàgina).
+        PAYMENT_PANEL_SELECTOR: '[id$="panel-2"][aria-hidden="false"]',
+        // Contenidor que allotja TOTS els botons de mètode de pagament
+        // (Credit, Points, Card on File, Card Terminal, Card, Card other,
+        // Cash, Account, Vouchers, Other). És únic dins el panel-2 i ens
+        // serveix de "gate" per bloquejar tota la fila de cop.
+        PAYMENT_FOOTER_SELECTOR:
+            'div[class*="Tabs_invoiceTabPaymentActionFooterRow__"]',
+        // Selectors individuals dels botons de pagament. Tots queden
+        // dins de PAYMENT_FOOTER_SELECTOR; els llistem igual per si
+        // en algun moment es renderitza algun botó fora del footer.
+        PAYMENT_BUTTON_SELECTORS: [
+            'button[data-testid="credit-payment-button"]',
+            'button[data-testid="loyalty-payment-button"]',
+            'button[data-testid="card-file-button"]',
+            'button[aria-label="visa-card-button-payment"]',
+            'button[aria-label="card-button"]',
+            'button[data-cy="cardOtherButton"]',
+            'button[aria-label="cash-button"]',
+            'button[aria-label="account-payment"]',
+            'button[data-testid="voucher-payment-button"]',
+            'button[data-testid="other-payments"]',
+        ].join(","),
     });
 
     /* =========================================================================
@@ -673,33 +701,31 @@
 
     const buttonGuard = (() => {
         /**
-         * @param {string} [customLabel] - Text a mostrar al botó.
-         * @param {string} [tooltip]     - Text per l'atribut `title` (tooltip natiu).
+         * Bloqueja UN sol botó (selector configurable). Aplica el color
+         * vermell, desactiva, posa tooltip i desa l'estat als datasets.
+         *
+         * @param {string} selector - selector CSS del botó
+         * @param {string} [customLabel] - Text a mostrar al botó
+         * @param {string} [tooltip]     - Text per l'atribut `title`
+         * @param {string} [key]         - Identificador (ex. "main" | "payment")
          */
-        function block(customLabel, tooltip) {
-            // NOTA: ja no exigim #invoice aquí. La decisió de bloquejar
-            // la pren `invoiceGuard.process` quan té un `invoiceNo` vàlid.
-
-            const btn = document.querySelector(CONFIG.BUTTON_SELECTOR);
-            if (!btn) return;
+        function blockOne(selector, customLabel, tooltip, key) {
+            const btn = document.querySelector(selector);
+            if (!btn) return false;
 
             const label = btn.querySelector("p") || btn;
             const finalLabel = customLabel || CONFIG.BLOCKED_LABEL;
             const finalTooltip = tooltip || "";
+            const blockKey = key || "main";
 
-            // Si ja està bloquejat AMB EL TEXT/TITLE VISIBLES correctes, no
-            // hi tornem. Comparem contra l'estat VISIBLE (no pas contra els
-            // datasets), perquè el caller (`invoiceGuard.process`) ja els
-            // actualitza ABANS de cridar block() — retornar aquí faria que el
-            // text/tooltip del botó no s'actualitzessin mai (és exactament
-            // el bug que es veu a la consola: datasets nous però <p> encara
-            // amb "Consultando documentación..." i title="").
+            // Idempotència: si ja està bloquejat AMB el text/title visibles
+            // correctes, no hi tornem.
             if (
                 btn.dataset.lopdBlocked === "true" &&
                 label.textContent === finalLabel &&
                 btn.title === finalTooltip
             ) {
-                return;
+                return true;
             }
 
             label.textContent = finalLabel;
@@ -717,27 +743,133 @@
             btn.dataset.lopdBlocked = "true";
             btn.dataset.lopdLabel = finalLabel;
             btn.dataset.lopdTooltip = finalTooltip;
-            console.log("[Pabau LOPD] Botó bloquejat:", finalLabel, btn);
+            btn.dataset.lopdKey = blockKey;
+            return true;
+        }
+
+        /** Reverteix l'estat d'un botó bloquejat per aquest script. */
+        function unblockOne(btn) {
+            if (!btn || btn.dataset.lopdBlocked !== "true") return;
+            delete btn.dataset.lopdBlocked;
+            delete btn.dataset.lopdLabel;
+            delete btn.dataset.lopdTooltip;
+            btn.title = "";
+            btn.disabled = false;
+            btn.style.cssText = "";
+        }
+
+        /**
+         * Bloqueja el botó principal "Guardar cambios".
+         * @param {string} [customLabel]
+         * @param {string} [tooltip]
+         */
+        function block(customLabel, tooltip) {
+            return blockOne(
+                CONFIG.BUTTON_SELECTOR,
+                customLabel,
+                tooltip,
+                "main",
+            );
+        }
+
+        /**
+         * Bloqueja TOTS els botons de mètode de pagament dins del
+         * panell de pagaments. NOMÉS els desactiva + posa tooltip
+         * (no toquem el text intern ni els estils del botó).
+         *
+         * @param {string} [tooltip]
+         * @returns {number} nombre de botons bloquejats
+         */
+        function blockPaymentButtons(tooltip) {
+            const tt =
+                tooltip ||
+                "No es pot cobrar fins que la documentació estigui al dia";
+            const btns = document.querySelectorAll(
+                CONFIG.PAYMENT_BUTTON_SELECTORS,
+            );
+            let n = 0;
+            for (const b of btns) {
+                // Seguretat: només bloquejem els que viuen dins del
+                // panell de pagaments (no toquem cap botó que estigui
+                // fora per error de selector).
+                const inFooter = b.closest(CONFIG.PAYMENT_FOOTER_SELECTOR);
+                if (!inFooter) continue;
+                if (blockPaymentOnNode(b, tt)) n += 1;
+            }
+            return n;
+        }
+
+        /**
+         * Versió "lleugera" del bloqueig: només `disabled` + `title`,
+         * sense alterar el contingut del botó ni els seus estils.
+         * A més, captura el `click` per si React o un altre listener
+         * re-activa el botó: encara que quedi enabled, el clic es
+         * neutralitza.
+         */
+        function blockPaymentOnNode(btn, tooltip) {
+            if (!btn) return false;
+            const tt = tooltip || "";
+
+            // Idempotència: si ja està bloquejat amb el mateix title, no hi tornem.
+            if (
+                btn.dataset.lopdBlocked === "true" &&
+                btn.title === tt
+            ) {
+                return true;
+            }
+
+            btn.disabled = true;
+            btn.title = tt;
+            btn.dataset.lopdBlocked = "true";
+            btn.dataset.lopdTooltip = tt;
+            btn.dataset.lopdKey = "payment";
+            // Marcar el cursor per coherència amb el botó principal.
+            btn.style.cursor = "not-allowed";
+
+            // Reforç: interceptar clics per si la reactivitat de
+            // React torna a activar el botó entre cridades de l'observer.
+            if (!btn.dataset.lopdGuard) {
+                btn.dataset.lopdGuard = "1";
+                btn.addEventListener(
+                    "click",
+                    (ev) => {
+                        if (btn.dataset.lopdBlocked === "true") {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            ev.stopImmediatePropagation();
+                        }
+                    },
+                    true, // capture: interceptem ABANS que React
+                );
+            }
+            return true;
         }
 
         function unblockAll() {
+            // 1) Botó principal (text + estils vermells)
+            const main = document.querySelector(
+                `${CONFIG.BUTTON_SELECTOR}[data-lopd-blocked]`,
+            );
+            if (main) unblockOne(main);
+
+            // 2) Botons de pagament (només disabled + title)
             document
                 .querySelectorAll(
-                    `${CONFIG.BUTTON_SELECTOR}[data-lopd-blocked]`,
+                    `${CONFIG.PAYMENT_BUTTON_SELECTORS}[data-lopd-blocked]`,
                 )
                 .forEach((b) => {
+                    if (b.dataset.lopdBlocked !== "true") return;
                     delete b.dataset.lopdBlocked;
-                    delete b.dataset.lopdChecked;
-                    delete b.dataset.lopdKey;
-                    delete b.dataset.lopdLabel;
                     delete b.dataset.lopdTooltip;
+                    // No esborrem lopdGuard: el listener segueix actiu
+                    // però només actua si el botó torna a estar bloquejat.
                     b.title = "";
                     b.disabled = false;
-                    b.style.cssText = "";
+                    b.style.cursor = "";
                 });
         }
 
-        return { block, unblockAll };
+        return { block, blockPaymentButtons, unblockAll };
     })();
 
     /* =========================================================================
@@ -759,8 +891,37 @@
 
     const invoiceGuard = (() => {
         const processedViews = new Set(); // memo: clientId|invoiceNo
-        const buttonObservers = new WeakMap(); // btn -> MutationObserver
         let inFlight = null; // Promise de la validació en curs (per evitar duplicats)
+        let tabObserver = null; // MutationObserver dedicat als panels rc-tabs
+
+        /**
+         * Comprova si el panel de pagaments (3a pestanya de la pàgina
+         * /financial) està actualment actiu. Retorna true NOMÉS quan
+         * el div existeix I té aria-hidden="false".
+         *
+         * Si el panel no existeix (p. ex. l'usuari està en una altra
+         * pestanya o la pàgina encara no ha renderitzat les tabs),
+         * retornem false. El MutationObserver de `install()` ens
+         * tornarà a cridar quan el DOM canviï, de manera que el
+         * script segueix "funcionant" fins que troba el panel.
+         */
+        function isPaymentTabActive() {
+            return (
+                document.querySelectorAll(CONFIG.PAYMENT_PANEL_SELECTOR)
+                    .length > 0
+            );
+        }
+
+        /**
+         * Retorna TOTS els elements `*-panel-N` que existeixin al DOM
+         * (independint del seu aria-hidden). Serveix per saber a quins
+         * panels hem de subscriure'ns amb l'observer de tabs.
+         */
+        function allTabPanels() {
+            return Array.from(
+                document.querySelectorAll('[id$="panel-0"], [id$="panel-1"], [id$="panel-2"], [id$="panel-3"], [id$="panel-4"]'),
+            );
+        }
 
         function clientIdFromPath(pathname) {
             const m = pathname.match(/^\/clients\/(\d+)\//);
@@ -775,6 +936,18 @@
             const oldClient = clientIdFromPath(new URL(oldHref).pathname);
             const newClient = clientIdFromPath(location.pathname);
             if (oldClient !== newClient) processedViews.clear();
+        }
+
+        /**
+         * S'ha canviat la pestanya activa. Si hem SORTIT del panel de
+         * pagaments → desbloquegem el botó immediatament (no esperem
+         * res més). Si hem ENTRAT al panel de pagaments → el `process()`
+         * ja s'encarregarà a través de l'observer del `install()`.
+         */
+        function handleTabChange() {
+            if (!isPaymentTabActive()) {
+                buttonGuard.unblockAll();
+            }
         }
 
         /** Format amigable d'un issue per al tooltip. */
@@ -828,6 +1001,12 @@
         async function process({ apiKey: key, clientId }) {
             const btn = document.querySelector(CONFIG.BUTTON_SELECTOR);
             if (!btn) return;
+
+            // Només actuem quan el panel de pagaments està actiu.
+            // Si no existeix o no està visible, NO fem res — el
+            // MutationObserver del bootstrap ens tornarà a cridar
+            // quan el DOM canviï (canvi de tab, muntatge inicial, etc.).
+            if (!isPaymentTabActive()) return;
 
             const invoiceNo = invoiceStore.invoiceNo;
             if (!invoiceNo) return; // encara no tenim número de factura
@@ -906,27 +1085,24 @@
                 btn.dataset.lopdTooltip = tooltip || "";
                 buttonGuard.block(label, tooltip);
 
-                // Si React remunta el botó, el tornem a bloquejar amb el
-                // label/tooltip que ja hem desat al dataset.
-                if (!buttonObservers.has(btn)) {
-                    const mo = new MutationObserver(() => {
-                        const fresh = document.querySelector(
-                            CONFIG.BUTTON_SELECTOR,
-                        );
-                        if (fresh && !fresh.dataset.lopdBlocked) {
-                            buttonGuard.block(
-                                fresh.dataset.lopdLabel ||
-                                    CONFIG.BLOCKED_LABEL,
-                                fresh.dataset.lopdTooltip || "",
-                            );
-                        }
-                    });
-                    mo.observe(document.body, {
-                        childList: true,
-                        subtree: true,
-                    });
-                    buttonObservers.set(btn, mo);
-                }
+                // També bloquegem tots els botons de mètode de pagament
+                // (Credit, Points, Card, Cash, Vouchers, etc.) del
+                // panell de pagaments. Només els desactivem + tooltip,
+                // SENSE tocar el text intern ni els estils del botó.
+                const nBlocked = buttonGuard.blockPaymentButtons(
+                    tooltip ||
+                        "No es pot cobrar fins que la documentació estigui al dia",
+                );
+                console.log(
+                    `[Pabau LOPD] Botons de pagament bloquejats: ${nBlocked}`,
+                );
+                // NOTA: NO creem cap MutationObserver intern aquí.
+                // L'únic observer que ens interessa és el del `install()`,
+                // que ja torna a cridar `process()` quan canvii el DOM.
+                // Si en creéssim un, reblocaríem el botó encara que
+                // l'usuari hagi canviat a una altra tab (el panel
+                // rc-tabs-*-panel-2 segueix sent al DOM, només ha canviat
+                // el seu aria-hidden).
             } else {
                 btn.dataset.lopdLabel = "";
                 btn.dataset.lopdTooltip = "";
@@ -944,6 +1120,15 @@
             const ensureDom = () => {
                 const clientId = clientIdFromPath(location.pathname);
                 if (!clientId) return;
+
+                // Si NO estem al panel de pagaments, no toquem res.
+                // Si el panel encara no s'ha muntat, l'observer de tabs
+                // (més avall) ens avisarà quan aparegui.
+                if (!isPaymentTabActive()) {
+                    buttonGuard.unblockAll();
+                    return;
+                }
+
                 process({ apiKey: key, clientId });
             };
 
@@ -954,6 +1139,34 @@
             }
             const mo = new MutationObserver(ensureDom);
             mo.observe(document.body, { childList: true, subtree: true });
+
+            // Observer específic per detectar canvis de tab dins de
+            // /financial. Quan l'aria-hidden d'un panel canvia,
+            // mirem si estem al panel de pagaments o no.
+            const subscribeTabPanels = () => {
+                if (tabObserver) tabObserver.disconnect();
+                tabObserver = new MutationObserver(handleTabChange);
+                for (const panel of allTabPanels()) {
+                    tabObserver.observe(panel, {
+                        attributes: true,
+                        attributeFilter: ["aria-hidden", "class"],
+                    });
+                }
+            };
+            subscribeTabPanels();
+
+            // Re-subscriure quan el body canviï (per si React remunta
+            // les tabs, cosa que passa sovint a la SPA).
+            const tabResub = new MutationObserver(() => {
+                const panels = allTabPanels();
+                if (panels.length === 0) return;
+                // Comprovem si ja estem observant tots els panels.
+                // Si n'hi ha cap de nou, re-subscriure.
+                const current = tabObserver ? tabObserver.takeRecords() : [];
+                if (current.length > 0) return;
+                subscribeTabPanels();
+            });
+            tabResub.observe(document.body, { childList: true, subtree: true });
         }
 
         return { install };
