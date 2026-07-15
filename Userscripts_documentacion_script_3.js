@@ -7,12 +7,7 @@
 // @match        https://app.pabau.com/*
 // @match        https://app.pabau.com/clients/*/financial*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=pabau.com
-// @grant        GM_setValue
-// @grant        GM_getValue
-// @grant        GM_xmlhttpRequest
-// @grant        GM_registerMenuCommand
-// @grant        GM_info
-// @connect      api.oauth.pabau.com
+// @grant        none
 // @run-at       document-end
 // @noframes
 // ==/UserScript==
@@ -24,9 +19,33 @@
  *   1. No inclou `@sandbox JavaScript` (Userscripts ho ignora i podria
  *      generar warnings).
  *   2. No usa cap `unsafeWindow` ni accedeix a cap API privada.
- *   3. Les GM_* APIs s'utilitzen igual; Userscripts les suporta totes
- *      (GM_setValue, GM_getValue, GM_xmlhttpRequest, GM_registerMenuCommand,
- *      GM_info) sempre que estiguin declarades a `@grant`.
+ *   3. Usa `@grant none` (i NO declara cap GM_* al header). Això és
+ *      CRÍTIC per a Userscripts ≥ 1.2.1 (iOS): veure
+ *      https://github.com/quoid/userscripts/issues/265
+ *
+ *      Quan un script declara `@grant` amb qualsevol valor
+ *      (GM_setValue, GM_xmlhttpRequest, etc.), Userscripts l'injecta
+ *      forçadament en **content script context**, on les APIs GM_*
+ *      NO existeixen per defecte → `ReferenceError: Can't find variable:
+ *      GM_getValue` i l'script peta a la primera crida.
+ *
+ *      La solució correcta per a iOS Safari és:
+ *
+ *        - `@grant none`   → desactiva el sandbox privilegiat
+ *        - Sense `@grant` per a cap GM_*
+ *        - Sense `@inject-into`  (per defecte = `auto` = page context)
+ *
+ *      En aquest mode Userscripts injecta el codi al **page context**
+ *      (mateix que la resta de JS de la pàgina) i les APIs GM_*
+ *      s'exposen globalment via un bridge intern de l'extensió,
+ *      exactament igual que a Tampermonkey.
+ *
+ *      NOTA: Si en algun moment cal activar les APIs des del content
+ *      context (p. ex. des d'un altre @require o des del background),
+ *      caldria afegir `@grant` i creuar les dades amb postMessage
+ *      (veure https://github.com/quoid/userscripts/issues/252#issuecomment-1242540493).
+ *      Per a aquest script NO cal — tot el codi viu al page context.
+ *
  *   4. S'afegeix `@noframes` perquè Userscripts (i Tampermonkey) només
  *      s'injectin al frame principal de Pabau.
  *
@@ -406,8 +425,12 @@
      * Emmagatzema la clau d'API amb GM_setValue (xifrada per l'extensió).
      * Si no n'hi ha, la demana amb prompt(); ofereix un menú per canviar-la.
      *
-     * NOTA Userscripts: GM_setValue / GM_getValue funcionen idènticament.
-     * La diferència és que Userscripts desa les dades a localStorage del
+     * NOTA Userscripts (iOS Safari): usem `@grant none` al header → l'script
+     * corre en **page context** i les APIs GM_* s'exposen globalment via
+     * un bridge intern de l'extensió (veure capçalera). Per tant
+     * GM_setValue / GM_getValue / GM_xmlhttpRequest / GM_registerMenuCommand
+     * / GM_info funcionen exactament igual que a Tampermonkey. La
+     * diferència és que Userscripts desa les dades a localStorage del
      * navegador (no xifrades igual que Tampermonkey), però per una sola
      * clau d'API no és un risc rellevant.
      * ======================================================================= */
