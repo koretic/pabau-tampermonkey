@@ -53,26 +53,133 @@ botó és modificat.
 | **Selector botó principal** | `button[data-testid="operation-create"]` |
 | **Selector invoice** | `#invoice` |
 | **Pestanya de pagaments** | `[id$="panel-2"][aria-hidden="false"]` |
-| **Emmagatzematge** | Clau API xifrada per Tampermonkey (`GM_setValue`) |
+| **Emmagatzematge (Tampermonkey)** | Clau API xifrada per l'extensió (`GM_setValue`) |
+| **Emmagatzematge (Userscripts / iOS)** | `localStorage` de Safari, en text pla (no xifrada) |
+| **CORS (iOS / Userscripts)** | Sense credencials (`fetch` amb `credentials: "omit"`) |
 | **Versió** | `2026-07-12` |
 
 #### Instal·lació
 
-1. Instal·la [Tampermonkey](https://www.tampermonkey.net/) al navegador.
-2. Obre el panell de Tampermonkey → **Crea un nou script**.
-3. Enganxa el contingut de `TamperMonkey_documentacion_script_3.js`.
-4. Desa. La primera vegada que visitis una URL coincident et demanarà
-   la **API key** de Pabau.
+Cada navegador té el seu fitxer i el seu mètode d'instal·lació. **Agafa
+el que toca segons on vulguis fer-lo servir** — NO n'instal·lis més
+d'un a la vegada.
 
 > ⚠️ A diferència de la v2, la v3 **ja no requereix** el fitxer
 > `treatments_config.js`. Si tens la v2 instal·lada, **desinstal·la-la
 > primer** per evitar duplicitats.
 
+---
+
+##### A. Chrome / Edge / Brave / Opera (escriptori)
+
+Usa el fitxer **`TamperMonkey_documentacion_script_3.js`** amb
+[Tampermonkey](https://www.tampermonkey.net/).
+
+1. Instal·la l'extensió **Tampermonkey** des de la Chrome Web Store
+   (Edge / Brave / Opera tenen botigues compatibles).
+2. Obre el panell de Tampermonkey des de la icona de l'extensió.
+3. Clica la pestanya **Utilitats** (o «Utilities») → **Crea un nou script**.
+4. Selecciona tot el contingut del fitxer
+   `TamperMonkey_documentacion_script_3.js` i enganxa'l al editor.
+5. Desa amb **Cmd/Ctrl + S**.
+6. Recarrega https://app.pabau.com/.
+7. La primera vegada et sortirà un `prompt()` per introduir l'**API
+   key** de Pabau. Desa-la — queda emmagatzemada xifrada.
+
+---
+
+##### B. Firefox (escriptori)
+
+Usa el fitxer **`TamperMonkey_documentacion_script_3.js`** amb
+[Tampermonkey](https://www.tampermonkey.net/) o
+[Greasemonkey](https://www.greasespot.net/).
+
+1. Instal·la Tampermonkey o Greasemonkey des de la galeria de
+   complement de Firefox (`about:addons`).
+2. Obre el panell → **Crea un nou script**.
+3. Enganxa el contingut de `TamperMonkey_documentacion_script_3.js`.
+4. Desa i recarrega https://app.pabau.com/.
+5. Introdueix l'API key quan surti el `prompt()`.
+
+---
+
+##### C. Safari (macOS)
+
+Usa el fitxer **`TamperMonkey_documentacion_script_3.js`** amb
+[Tampermonkey per a Safari](https://www.tampermonkey.net/?browser=safari).
+
+1. Instal·la Tampermonkey des de l'App Store.
+2. Active l'extensió a Safari → Preferències → Extensions.
+3. Obre el panell → **Crea un nou script**.
+4. Enganxa el contingut de `TamperMonkey_documentacion_script_3.js`.
+5. Desa i recarrega https://app.pabau.com/.
+6. Introdueix l'API key quan surti el `prompt()`.
+
+---
+
+##### D. Safari (iOS / iPadOS)
+
+Aquí Tampermonkey **no és viable** perquè Apple no permet extensions
+de Safari amb modificació de pàgina a tercers a l'App Store. La
+solució recomanada és
+[Userscripts](https://github.com/quoid/userscripts), que és una app
+gratuïta de l'App Store pensada específicament per executar scripts
+d'usuari.
+
+Usa el fitxer **`Userscripts_documentacion_script_3.js`**.
+
+1. Instal·la **Userscripts** des de l'App Store.
+2. Obre l'app Userscripts i permet-li afegir l'extensió a Safari
+   (et portarà a Safari → Extensions → activa **Userscripts**).
+3. A Safari, vés a https://app.pabau.com/ — de moment no passa
+   res, Userscripts encara no té cap script.
+4. Torna a obrir **Userscripts**. Toca la pestanya **Settings**
+   (⚙️) o **My Scripts**.
+5. Toca **+ Add new script** i enganxa el contingut sencer del
+   fitxer `Userscripts_documentacion_script_3.js`. Alternativament,
+   pots servir-te de Safari per descarregar el `.user.js` directament
+   i Userscripts el detectarà.
+6. Desa'l. El nom surtirà a la llista com a
+   `Block invoice Pabau - LOPD check (Userscripts/iOS)`.
+7. Recarrega https://app.pabau.com/.
+8. La primera vegada et sortirà un `prompt()` per introduir l'**API
+   key**. Queda desada al `localStorage` de Safari (text pla, no
+   xifrada com a Tampermonkey, però persistent dins la mateixa
+   instal·lació de l'extensió).
+
+> 🔄 **Per canviar l'API key** posteriorment: obre la consola de
+> Safari a https://app.pabau.com/ i executa
+> `location.search = '?__change_lopd_key=1';`. L'script detectarà
+> el paràmetre i obrirà un `prompt()` per actualitzar-la.
+
+> ⚠️ **Limitacions a iOS**: la clau API queda emmagatzemada a
+> `localStorage` (no xifrada). Si vols més privadesa, esborra-la
+> des de la consola amb `localStorage.removeItem('pabau_lopd.pabau_api_key')`.
+
+---
+
+##### Notes comunes a tots els navegadors
+
+- **Un sol navegador alhora**: si tens el fitxer de Tampermonkey
+  instal·lat al mateix navegador on tens Userscripts, pots tenir
+  duplicats. Usa **només un** dels dos.
+- **Múltiples clients**: si canvies d'empresa o compte Pabau,
+  esborra la clau des del menú de l'extensió i torna-la a
+  introduir.
+- **Comprovar que funciona**: vés a una URL
+  `https://app.pabau.com/clients/<ID>/financial`, obre la
+  **consola del navegador** i busca el missatge
+  `[Pabau LOPD] Actiu a ...`. Si hi és, l'script està
+  carregat correctament.
+
 #### Configuració
 
-Pots canviar la clau API en qualsevol moment des del menú de Tampermonkey:
-
-> 🔑 Modificar API key
+- **Tampermonkey (Chrome / Edge / Firefox / Safari macOS)**: el menú
+  de l'extensió té una entrada `🔑 Modificar API key`.
+- **Userscripts (iOS Safari)**: obre la consola de Safari a
+  `https://app.pabau.com/` i executa
+  `location.search = '?__change_lopd_key=1';`. L'script obrirà un
+  `prompt()` per canviar-la.
 
 #### Comportament a la UI
 
@@ -414,9 +521,13 @@ intern el torna a bloquejar automàticament amb l'estat desat al
 ## Notes
 
 - L'script **no** modifica cap altra funcionalitat de Pabau.
-- Per desactivar'l temporalment: icona de Tampermonkey → Dashboard →
-  ON/OFF.
+- Per desactivar'l temporalment:
+  - **Tampermonkey**: icona de l'extensió → Dashboard → ON/OFF.
+  - **Userscripts (iOS)**: icona de l'app → My Scripts → desactiva
+    `Block invoice Pabau - LOPD check (Userscripts/iOS)`.
 - Si canvies d'empresa o compte, esborra la clau des del menú de
-  l'script i torna-la a introduir.
+  l'script (Tampermonkey) o bé des de la consola amb
+  `localStorage.removeItem('pabau_lopd.pabau_api_key')` (Userscripts)
+  i torna-la a introduir.
 - El mapa de tractaments és un snapshot de 2026; quan canviï l'any,
   actualitza les cadenes `base` dins de `treatmentsConfig`.

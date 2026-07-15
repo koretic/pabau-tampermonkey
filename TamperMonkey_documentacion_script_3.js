@@ -1165,7 +1165,16 @@
 
             const oldClient = clientIdFromPath(new URL(oldHref).pathname);
             const newClient = clientIdFromPath(location.pathname);
-            if (oldClient !== newClient) processedViews.clear();
+            // BUGFIX: abans només es buidava `processedViews` quan canviava
+            // el client. Això feia que si l'usuari sortia d'/financial i
+            // hi tornava (mateix client i mateixa factura), l'script
+            // reapliaqués l'estat antic sense tornar a bloquejar preventivament
+            // els botons de pagament. Ara ho buidem SEMPRE: cada nova
+            // entrada al panell de pagaments és una nova oportunitat per
+            // aplicar el bloqueig preventiu i validar l'API.
+            void oldClient;
+            void newClient;
+            processedViews.clear();
         }
 
         /**
@@ -1245,38 +1254,26 @@
 
             const cacheKey = `${clientId}|${invoiceNo}`;
 
-            // 1) Ja estem processant aquesta combinació en aquest botó
-            //    concret → no fem res. Usem `lopdChecked` (no pas
-            //    `lopdKey`) perquè l'`unblockAll()` esborra TOTS els
-            //    marcadors en sortir del panel, de manera que quan
-            //    l'usuari TORN al panel, `lopdChecked` és undefined i
-            //    podem tornar a aplicar el bloqueig.
+            // 1) Si ja estem processant AQUESTA COMBINACIÓ I AQUEST BOTÓ
+            //    concret en aquest precís moment → no fem res. Usem
+            //    `lopdChecked` (no pas `lopdKey`) perquè l'`unblockAll()`
+            //    esborra TOTS els marcadors en sortir del panel, de manera
+            //    que quan l'usuari TORN al panel, `lopdChecked` és undefined
+            //    i podem tornar a aplicar el bloqueig.
+            //
+            // BUGFIX: amb el canvi a `processedViews.clear()` en tota
+            // navegació, aquesta branca ja no s'usa mai en reentrar al
+            // panell — sempre validem de nou. Es manté com a safety net
+            // per a crides duplicades del propi observer mentre una
+            // consulta és en vol (mateixa factura, mateix botó, mateixa
+            // promesa).
             if (btn.dataset.lopdChecked === cacheKey) return;
 
-            // 2) Ja tenim el resultat a memòria → reapliquem (no cal consultar).
-            if (processedViews.has(cacheKey)) {
-                btn.dataset.lopdChecked = cacheKey;
-                // Distingim "OK" vs "amb issues" mirant si hi havia cap
-                // label desat. Les factures OK es guarden amb lopdLabel=""
-                // i les que tenen issues amb lopdLabel="Faltan/caducan N".
-                const hadIssues = !!btn.dataset.lopdLabel;
-                if (hadIssues) {
-                    buttonGuard.block(
-                        btn.dataset.lopdLabel,
-                        btn.dataset.lopdTooltip || "",
-                    );
-                    buttonGuard.blockPaymentButtons(
-                        btn.dataset.lopdTooltip || "",
-                    );
-                } else {
-                    // La factura estava OK → restaurem el text ORIGINAL
-                    // del botó (no pas el text per defecte "Falta la
-                    // documentación firmada") i habilitem els pagaments.
-                    buttonGuard.unblockOne(btn);
-                    buttonGuard.unblockPaymentButtons();
-                }
-                return;
-            }
+            // 2) Brava de memòria ELIMINADA: abans reaplicava l'estat
+            //    desat, però amb `processedViews.clear()` ja no hi ha
+            //    memòria vàlida quan entrem al panell. Entrem sempre
+            //    per la branca 3 (bloqueig preventiu + nova consulta API)
+            //    per garantir consistència amb Pabau.
 
             // 3) Bloquegem immediatament amb el text de "consultant"
             //    perquè l'usuari no pugui prémer el botó durant les crides.
@@ -1402,24 +1399,25 @@
                 }
 
                 // CAS 2: Panel actiu.
-                // Bloquegem preventivament NOMÉS una vegada (quan encara
-                // no tenim el resultat de l'API en memòria). Després,
-                // `process()` ja s'encarrega de mantenir l'estat correcte.
-                //
-                // IMPORTANT: hem d'evitar re-bloquejar cada vegada que
-                // l'observer es dispara (passa centenars de vegades per
-                // segon). Per això comprovem `processedViews.has(cacheKey)`.
+                // BUGFIX: abans el bloqueig preventiu NOMÉS s'aplicava la
+                // primera vegada (gracias a `processedViews.has(cacheKey)`),
+                // però això fallava en reentrar al panell perquè
+                // `handleNavigation` ja havia netejat el `processedViews`.
+                // Ara SEMPRE reapliquem el bloqueig preventiu dels botons
+                // de pagament quan entrem al panell — el `process()` ja
+                // s'encarregarà de mantenir-lo o aixecar-lo quan arribi
+                // la resposta de l'API.
                 const invoiceNo = invoiceStore.invoiceNo;
                 const cacheKey =
                     invoiceNo != null ? `${clientId}|${invoiceNo}` : null;
-                const alreadyProcessed =
-                    cacheKey != null && processedViews.has(cacheKey);
+                void cacheKey;
 
-                if (!alreadyProcessed) {
-                    buttonGuard.forceBlockAllPaymentButtons(
-                        "Revisando documentación...",
-                    );
-                }
+                // Bloquegem SEMPRE preventivament quan entrem al panel.
+                // Aquest és el bloqueig "consultant" que veurà l'usuari
+                // fins que l'API respongui.
+                buttonGuard.forceBlockAllPaymentButtons(
+                    "Revisando documentación...",
+                );
 
                 process({ apiKey: key, clientId });
             };
