@@ -546,11 +546,18 @@
 
     const documentsApi = (() => {
         function fetchPabau(url) {
-            // API key va a la URL (path), no a Authorization header — Pabau
-            // ho accepta així per a scripts de servidor.
+            // IMPORTANT: NO usem `credentials: "include"`. Pabau retorna
+            // `Access-Control-Allow-Origin: *` (com un CDN públic) i el
+            // navegador rebutja la petició si s'envien credencials
+            // ("Cannot use wildcard in Access-Control-Allow-Origin when
+            // credentials flag is true"). L'autenticació ja va a la URL
+            // (l'API key és part del path), per la qual cosa NO cal
+            // cap cookie ni credential.
             return fetch(url, {
                 method: "GET",
-                credentials: "include",
+                mode: "cors",
+                credentials: "omit",
+                redirect: "follow",
                 headers: { Accept: "application/json" },
             });
         }
@@ -580,7 +587,16 @@
                 res = await fetchPabau(url);
             } catch (err) {
                 // Error de xarxa o de CORS — no podem distingir-los des
-                // d'aquí. Política: NO bloquegem cap botó.
+                // d'aquí. Política: NO bloquegem cap botó. Loguem el
+                // detall per facilitar el diagnòstic a iOS.
+                console.warn(
+                    `[Pabau LOPD] Fetch fallit per a ${documentName}. ` +
+                    `Si és un error CORS, Pabau pot estar retornant ` +
+                    `Access-Control-Allow-Origin: * amb credentials rebutjats. ` +
+                    `Comprova que la clau API és correcta i que Pabau ` +
+                    `permet l'origen https://app.pabau.com.`,
+                    err,
+                );
                 throw new Error("Error de xarxa o CORS: " + err.message);
             }
 
@@ -644,9 +660,12 @@
      * ======================================================================= */
     const invoiceApi = (() => {
         function fetchPabau(url) {
+            // Veure justificació a documentsApi.fetchPabau — NO credentials.
             return fetch(url, {
                 method: "GET",
-                credentials: "include",
+                mode: "cors",
+                credentials: "omit",
+                redirect: "follow",
                 headers: { Accept: "application/json" },
             });
         }
