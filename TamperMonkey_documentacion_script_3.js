@@ -125,11 +125,11 @@
             { id: 2702529, name: "Hiperhidrosis",                        category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA ES 2026",   expiryMonths: 12 } },
 
             // ============ Inductores de colágeno (Sculptra / Radiesse) ============
-            { id: 2702531, name: "Sculptra cuello",                      category: "Inductores",          document: { base: "CI INDUCTOR DE COLÁGENO ES 2026", expiryMonths: 12 } },
-            { id: 2702530, name: "Sculptra cara",                        category: "Inductores",          document: { base: "CI INDUCTOR DE COLÁGENO ES 2026", expiryMonths: 12 } },
-            { id: 2702532, name: "Radiesse Cara",                        category: "Inductores",          document: { base: "CI INDUCTOR DE COLÁGENO ES 2026", expiryMonths: 12 } },
-            { id: 2702533, name: "Radiesse cuello",                      category: "Inductores",          document: { base: "CI INDUCTOR DE COLÁGENO ES 2026", expiryMonths: 12 } },
-            { id: 2702597, name: "Inductores de colágeno",               category: "Inductores",          document: { base: "CI INDUCTOR DE COLÁGENO ES 2026", expiryMonths: 12 } },
+            { id: 2702531, name: "Sculptra cuello",                      category: "Inductores",          document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
+            { id: 2702530, name: "Sculptra cara",                        category: "Inductores",          document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
+            { id: 2702532, name: "Radiesse Cara",                        category: "Inductores",          document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
+            { id: 2702533, name: "Radiesse cuello",                      category: "Inductores",          document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
+            { id: 2702597, name: "Inductores de colágeno",               category: "Inductores",          document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
 
             // ============ Láser Rejuvenecimiento ============
             { id: 2702560, name: "ResurFX rejuvenecimiento",                       category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
@@ -972,7 +972,13 @@
                 const wasOurs =
                     b.dataset.lopdWasDisabled === "false";
 
-                // En tots dos casos Netegem els marcadors i el `title`.
+                // IMPORTANT: SEMPRE eliminem `data-lopd-blocked` i el `title`
+                // perquè l'idempotència de `blockPaymentOnNode` es baseua
+                // en aquests marcadors. Si no els esborrem, una possible
+                // re-crida a `forceBlockAllPaymentButtons` abans que React
+                // re-renderitzi pot fer que el botó quedi amb `disabled=true`
+                // permanent (el `disabled` es posa a true però mai es torna
+                // a posar a false perquè l'idempotència ho salta).
                 delete b.dataset.lopdBlocked;
                 delete b.dataset.lopdTooltip;
                 delete b.dataset.lopdKey;
@@ -986,12 +992,30 @@
                 }
 
                 // L'havíem desactivat nosaltres: el reactivem.
-                b.disabled = false;
+                // Usem removeAttribute en lloc de `disabled=false` per
+                // assegurar que el DOM queda net de l'atribut disabled
+                // (necessari perquè React no el torni a llegir del DOM
+                // en comptes del seu propi estat intern).
+                b.removeAttribute("disabled");
                 restored += 1;
             }
             if (btns.length > 0) {
                 console.log(
                     `[Pabau LOPD] unblockPaymentButtons: total=${btns.length}, restored=${restored}, skipped(botons-que-Pabau-tenia-disabled)=${skipped}`,
+                );
+            }
+            // Log final per verificar l'estat real dels botons despres
+            // de l'unblock (DEBUG)
+            if (typeof window !== "undefined") {
+                const checkBtn = document.querySelector(
+                    `${CONFIG.PAYMENT_BUTTON_SELECTORS}[data-lopd-blocked="true"]`,
+                );
+                console.log(
+                    `[Pabau LOPD] unblock post-check: ${
+                        checkBtn
+                            ? "ENCARA hi ha botons blocked!"
+                            : "TOTS OK - cap botó amb data-lopd-blocked"
+                    }`,
                 );
             }
         }
@@ -1123,6 +1147,7 @@
         const processedViews = new Set(); // memo: clientId|invoiceNo
         let inFlight = null; // Promise de la validació en curs (per evitar duplicats)
         let tabObserver = null; // MutationObserver dedicat als panels rc-tabs
+        let _processingKey = null; // clau client|factura que s'està processant ara mateix
 
         /**
          * Comprova si el panel de pagaments (3a pestanya de la pàgina
@@ -1285,6 +1310,7 @@
             btn.dataset.lopdChecked = cacheKey;
             btn.dataset.lopdLabel = CONFIG.CONSULTING_LABEL;
             btn.dataset.lopdTooltip = "";
+            _processingKey = cacheKey;
 
             // 4) Si ja hi ha una validació en curs per la mateixa combinació
             //    → esperem-la i reapliquem el resultat.
@@ -1377,6 +1403,7 @@
                 buttonGuard.unblockOne(btn);
                 buttonGuard.unblockPaymentButtons();
             }
+            _processingKey = null;
         }
 
         /**
@@ -1410,7 +1437,23 @@
                 const invoiceNo = invoiceStore.invoiceNo;
                 const cacheKey =
                     invoiceNo != null ? `${clientId}|${invoiceNo}` : null;
-                void cacheKey;
+
+                // Obtenim el botó principal per comprovar si ja hem
+                // processat aquesta factura (ho indiquem amb lopdChecked).
+                const mainBtn = document.querySelector(CONFIG.BUTTON_SELECTOR);
+                const alreadyChecked = mainBtn && mainBtn.dataset.lopdChecked === cacheKey;
+
+                // FIX: NO re-bloquejar si:
+                // 1. Ja s'està processant aquesta combinació client|factura
+                //    (_processingKey), o
+                // 2. Ja s'ha processat anteriorment i s'ha desat el resultat
+                //    (lopdChecked). Això evita que el MutationObserver
+                //    re-bloqueges els botons cada vegada que es dispara
+                //    mentre esperem resposta de l'API o desprès d'haver
+                //    validat i desbloquejat.
+                if (cacheKey && (invoiceGuard._processingKey === cacheKey || alreadyChecked)) {
+                    return;
+                }
 
                 // Bloquegem SEMPRE preventivament quan entrem al panel.
                 // Aquest és el bloqueig "consultant" que veurà l'usuari

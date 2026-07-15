@@ -101,23 +101,10 @@ Usa el fitxer **`TamperMonkey_documentacion_script_3.js`** amb
 4. Desa i recarrega https://app.pabau.com/.
 5. Introdueix l'API key quan surti el `prompt()`.
 
----
-
-##### C. Safari (macOS)
-
-Usa el fitxer **`TamperMonkey_documentacion_script_3.js`** amb
-[Tampermonkey per a Safari](https://www.tampermonkey.net/?browser=safari).
-
-1. Instal·la Tampermonkey des de l'App Store.
-2. Active l'extensió a Safari → Preferències → Extensions.
-3. Obre el panell → **Crea un nou script**.
-4. Enganxa el contingut de `TamperMonkey_documentacion_script_3.js`.
-5. Desa i recarrega https://app.pabau.com/.
-6. Introdueix l'API key quan surti el `prompt()`.
 
 ---
 
-##### D. Safari (iOS / iPadOS)
+##### C. Safari (iOS / iPadOS)
 
 Aquí Tampermonkey **no és viable** perquè Apple no permet extensions
 de Safari amb modificació de pàgina a tercers a l'App Store. La
