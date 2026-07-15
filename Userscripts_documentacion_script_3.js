@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Block invoice Pabau - LOPD check
-// @namespace    http://tampermonkey.net/
+// @name         Block invoice Pabau - LOPD check (Userscripts/iOS)
+// @namespace    https://github.com/quoid/userscripts
 // @version      2026-07-12
-// @description  Comprova els papers requerits (LOPD + CI per tractament) pels items d'una factura Pabau
+// @description  Comprova els papers requerits (LOPD + CI per tractament) pels items d'una factura Pabau — VERSIÓ PER A USERScripts (iOS Safari).
 // @author       Alex Rodriguez
 // @match        https://app.pabau.com/*
 // @match        https://app.pabau.com/clients/*/financial*
@@ -11,10 +11,30 @@
 // @grant        GM_getValue
 // @grant        GM_xmlhttpRequest
 // @grant        GM_registerMenuCommand
+// @grant        GM_info
 // @connect      api.oauth.pabau.com
 // @run-at       document-end
-// @sandbox      JavaScript
+// @noframes
 // ==/UserScript==
+
+/* ===========================================================================
+ * NOTA IMPORTANT — AQUESTA VERSIÓ ESTÀ ADAPTADA PER A "USERScripts"
+ * ---------------------------------------------------------------------------
+ * Diferències respecte la versió Tampermonkey:
+ *   1. No inclou `@sandbox JavaScript` (Userscripts ho ignora i podria
+ *      generar warnings).
+ *   2. No usa cap `unsafeWindow` ni accedeix a cap API privada.
+ *   3. Les GM_* APIs s'utilitzen igual; Userscripts les suporta totes
+ *      (GM_setValue, GM_getValue, GM_xmlhttpRequest, GM_registerMenuCommand,
+ *      GM_info) sempre que estiguin declarades a `@grant`.
+ *   4. S'afegeix `@noframes` perquè Userscripts (i Tampermonkey) només
+ *      s'injectin al frame principal de Pabau.
+ *
+ * Si tens Tampermonkey instal·lat (Mac/Chrome/Edge), usa la versió
+ * `TamperMonkey_documentacion_script_3.js`. Aquesta versió només
+ * és necessària per a iOS Safari amb l'extensió Userscripts.
+ * ===========================================================================
+ */
 
 /**
  * Estructura del fitxer:
@@ -36,6 +56,20 @@
     "use strict";
 
     /* =========================================================================
+     * 0. DETECCIÓ DE PLATAFORMA
+     * ----------------------------------------------------------------------
+     * Si per algun motiu el fitxer s'acaba executant dins d'un context
+     * Tampermonkey igualment, no passa res: totes les GM_* APIs estan
+     * disponibles a les dues extensions. Aquesta detecció és només
+     * informativa per als missatges de consola.
+     * ======================================================================= */
+    const IS_USERScripts =
+        typeof GM_info === "object" &&
+        GM_info !== null &&
+        typeof GM_info.scriptHandler !== "undefined" &&
+        GM_info.scriptHandler.toLowerCase().indexOf("userscripts") !== -1;
+
+    /* =========================================================================
      * 1. CONSTANTS I SELECTORS
      * ======================================================================= */
     const CONFIG = Object.freeze({
@@ -48,6 +82,34 @@
         // Text que es mostra al botó mentre s'està consultant l'API.
         // El botó ja queda disabled; el text és purament informatiu.
         CONSULTING_LABEL: "Consultando documentación...",
+        // Panel de pagaments (3a pestanya de /financial, índex 2).
+        // El bloqueig del botó "Guardar cambios" NOMÉS s'aplica quan
+        // aquest panel està actiu (aria-hidden="false"). Si no existeix
+        // encara, el MutationObserver del bootstrap segueix escoltant
+        // fins que aparegui (no és un push a una altra pàgina, són
+        // tabs dins la mateixa pàgina).
+        PAYMENT_PANEL_SELECTOR: '[id$="panel-2"][aria-hidden="false"]',
+        // Contenidor que allotja TOTS els botons de mètode de pagament
+        // (Credit, Points, Card on File, Card Terminal, Card, Card other,
+        // Cash, Account, Vouchers, Other). És únic dins el panel-2 i ens
+        // serveix de "gate" per bloquejar tota la fila de cop.
+        PAYMENT_FOOTER_SELECTOR:
+            'div[class*="Tabs_invoiceTabPaymentActionFooterRow__"]',
+        // Selectors individuals dels botons de pagament. Tots queden
+        // dins de PAYMENT_FOOTER_SELECTOR; els llistem igual per si
+        // en algun moment es renderitza algun botó fora del footer.
+        PAYMENT_BUTTON_SELECTORS: [
+            'button[data-testid="credit-payment-button"]',
+            'button[data-testid="loyalty-payment-button"]',
+            'button[data-testid="card-file-button"]',
+            'button[aria-label="visa-card-button-payment"]',
+            'button[aria-label="card-button"]',
+            'button[data-cy="cardOtherButton"]',
+            'button[aria-label="cash-button"]',
+            'button[aria-label="account-payment"]',
+            'button[data-testid="voucher-payment-button"]',
+            'button[data-testid="other-payments"]',
+        ].join(","),
     });
 
     /* =========================================================================
@@ -129,15 +191,15 @@
             { id: 2702574, name: "Nd-Yag Venas Prioculares",                       category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
 
             // ============ Mesoterapia / PRGF / PRP ============
-            { id: 2702554, name: "Vitaminas NCTF 135 AH rostro",                   category: "Mesoterapia", document: { base: "CI MESOTERAPIA NTCF 135 HA-ES 2026", expiryMonths: 12 } },
-            { id: 2702555, name: "Vitaminas NCTF 135 AH periocular",               category: "Mesoterapia", document: { base: "CI MESOTERAPIA NTCF 135 HA-ES 2026", expiryMonths: 12 } },
+            { id: 2702554, name: "Vitaminas NCTF 135 AH rostro",                   category: "Mesoterapia", document: { base: "CI MESOTERAPIA CON VITAMINAS ES 2026", expiryMonths: 12 } },
+            { id: 2702555, name: "Vitaminas NCTF 135 AH periocular",               category: "Mesoterapia", document: { base: "CI MESOTERAPIA CON VITAMINAS ES 2026", expiryMonths: 12 } },
             { id: 2702556, name: "PRGF Facial",                                    category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
             { id: 2702557, name: "PRGF Capilar",                                   category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
             { id: 2702558, name: "PRGF COLIRIO",                                   category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
             { id: 2702559, name: "Pack Vitaminas + PRGF",                          category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
-            { id: 2702616, name: "PRP Facial",                                     category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
-            { id: 2702617, name: "PRP Capilar",                                    category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
-            { id: 2702618, name: "Pack Vitaminas + PRP",                           category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
+            { id: 2702616, name: "PRP Facial",                                     category: "Mesoterapia", document: { base: "CI PRP ES 2026",                    expiryMonths: 12 } },
+            { id: 2702617, name: "PRP Capilar",                                    category: "Mesoterapia", document: { base: "CI PRP ES 2026",                    expiryMonths: 12 } },
+            { id: 2702618, name: "Pack Vitaminas + PRP",                           category: "Mesoterapia", document: { base: "CI PRP ES 2026",                    expiryMonths: 12 } },
 
             // ============ Marketing ============
             { id: 2702615, name: "Colaboración",                                   category: "Marketing",   document: { base: "CI USO IMAGENES SONIDO ES 2026",     expiryMonths: 12 } },
@@ -149,7 +211,7 @@
             { id: 2702551, name: "Lentes ICL tórica – por ojo",                    category: "Refractiva",  document: null },
 
             // ============ Tratamientos Faciales ============
-            { id: 2702611, name: "Reverso",                                        category: "Tratamientos Faciales", document: null },
+            { id: 2702611, name: "Reverso",                                        category: "Tratamientos Faciales", document: { base: "CI RADIOFRECUENCIA CON MICROAGUJAS", expiryMonths: 12 } },
             { id: 2702538, name: "Microneedling con exosomas vegetales",           category: "Tratamientos Faciales", document: { base: "CI MICRONEEDLING ES 2026", expiryMonths: 12 } },
             { id: 2702539, name: "Peeling médico cara",                            category: "Tratamientos Faciales", document: { base: "PEELING ES 2026",          expiryMonths: 12 } },
             { id: 2702537, name: "Microneedling cara y cuello",                    category: "Tratamientos Faciales", document: { base: "CI MICRONEEDLING ES 2026", expiryMonths: 12 } },
@@ -197,6 +259,43 @@
     })();
 
     /* =========================================================================
+     * 1c. MÒDUL: accents
+     * ----------------------------------------------------------------------
+     * Pabau desatitza els noms de fitxer pujats substituint cada caràcter
+     * accentuat per la vocal/n lletja + "?". Com que el cercador
+     * /clients/{id}/documents?search=... és LITERAL, li hem de passar
+     * el nom amb aquesta mateixa conversió perquè trobi coincidències.
+     *
+     * Exemple: "ELIMINACIÓN DE TATUAJES-ES 2026_FIRMADO.pdf" (accentuat,
+     * no el troba) → "ELIMINACIO?N DE TATUAJES-ES 2026_FIRMADO.pdf"
+     * (mangled, sí el troba).
+     *
+     * La conversió és idempotent: si el nom no té accents, es retorna
+     * exactament igual.
+     * ======================================================================= */
+    const accents = (() => {
+        /** Substitueix vocals/n accentuats per la versió lletja + "?". */
+        function mangle(str) {
+            if (!str) return "";
+            const map = {
+                "á": "a?", "Á": "A?",
+                "é": "e?", "É": "E?",
+                "í": "i?", "Í": "I?",
+                "ó": "o?", "Ó": "O?",
+                "ú": "u?", "Ú": "U?",
+                "ü": "u?", "Ü": "U?",
+                "ñ": "n?", "Ñ": "N?",
+            };
+            return String(str).replace(
+                /[áÁéÉíÍóÓúÚüÜñÑ]/g,
+                (ch) => map[ch] || ch,
+            );
+        }
+
+        return { mangle };
+    })();
+
+    /* =========================================================================
      * 2. MÒDUL: invoiceStore
      * ----------------------------------------------------------------------
      * Llegeix `#invoice` quan apareix al DOM i manté el seu valor a la
@@ -238,11 +337,6 @@
                     currentItemName = el.options[el.selectedIndex].text;
                     currentItemId = el.value;
                 }
-                console.log("[Pabau LOPD] Invoice obtinguda:", {
-                    invoiceNo: currentInvoiceNo,
-                    itemId: currentItemId,
-                    itemName: currentItemName,
-                });
                 return;
             }
             // Tornem-ho a provar al pròxim frame; es cancel·la amb start().
@@ -309,8 +403,13 @@
     /* =========================================================================
      * 4. MÒDUL: apiKey
      * ----------------------------------------------------------------------
-     * Emmagatzema la clau d'API amb TM_setValue (xifrada per Tampermonkey).
+     * Emmagatzema la clau d'API amb GM_setValue (xifrada per l'extensió).
      * Si no n'hi ha, la demana amb prompt(); ofereix un menú per canviar-la.
+     *
+     * NOTA Userscripts: GM_setValue / GM_getValue funcionen idènticament.
+     * La diferència és que Userscripts desa les dades a localStorage del
+     * navegador (no xifrades igual que Tampermonkey), però per una sola
+     * clau d'API no és un risc rellevant.
      * ======================================================================= */
 
     const apiKey = (() => {
@@ -362,11 +461,18 @@
          * @returns {Promise<{found: boolean, documents: Array, document: object|null}>}
          */
         function findDocument({ apiKey: key, clientId, documentName }) {
+            // Pabau desatitza els noms pujats substituint cada caràcter
+            // accentuat per la vocal/n lletja + "?". El seu cercador
+            // /clients/{id}/documents?search=... és LITERAL, per la qual
+            // cosa li hem de passar el nom amb aquesta mateixa conversió
+            // (si no, no trobarà cap coincidència). Veure mòdul `accents`.
+            const searchTerm = accents.mangle(documentName);
+
             const url =
                 `${CONFIG.API_BASE}/${encodeURIComponent(key)}` +
                 `/clients/${clientId}/documents` +
                 `?order=DESC&per_page=50&page=1` +
-                `&search=${encodeURIComponent(documentName)}`;
+                `&search=${encodeURIComponent(searchTerm)}`;
 
             return new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
@@ -383,6 +489,17 @@
                                     data.data ||
                                     [];
                                 const target = documentName.toLowerCase();
+                                // Acceptem coincidència contra:
+                                //   - El nom ORIGINAL amb accents (si un
+                                //     dia Pabau corregeix la sanitització).
+                                //   - El nom MANGLED que Pabau ha desat.
+                                //   - La variant MANGLED sense "?" (per si
+                                //     algun cop es queda sense "?" però
+                                //     encara sense accents).
+                                const targetMangled =
+                                    accents.mangle(documentName).toLowerCase();
+                                const targetStripped =
+                                    targetMangled.replace(/\?/g, "");
                                 const matches = list.filter((d) => {
                                     const name = (
                                         d.photo_title ||
@@ -391,7 +508,11 @@
                                         d.title ||
                                         ""
                                     ).toLowerCase();
-                                    return name === target;
+                                    return (
+                                        name === target ||
+                                        name === targetMangled ||
+                                        name === targetStripped
+                                    );
                                 });
                                 resolve({
                                     found: matches.length > 0,
@@ -673,33 +794,40 @@
 
     const buttonGuard = (() => {
         /**
-         * @param {string} [customLabel] - Text a mostrar al botó.
-         * @param {string} [tooltip]     - Text per l'atribut `title` (tooltip natiu).
+         * Bloqueja UN sol botó (selector configurable). Aplica el color
+         * vermell, desactiva, posa tooltip i desa l'estat als datasets.
+         *
+         * @param {string} selector - selector CSS del botó
+         * @param {string} [customLabel] - Text a mostrar al botó
+         * @param {string} [tooltip]     - Text per l'atribut `title`
+         * @param {string} [key]         - Identificador (ex. "main" | "payment")
          */
-        function block(customLabel, tooltip) {
-            // NOTA: ja no exigim #invoice aquí. La decisió de bloquejar
-            // la pren `invoiceGuard.process` quan té un `invoiceNo` vàlid.
-
-            const btn = document.querySelector(CONFIG.BUTTON_SELECTOR);
-            if (!btn) return;
+        function blockOne(selector, customLabel, tooltip, key) {
+            const btn = document.querySelector(selector);
+            if (!btn) return false;
 
             const label = btn.querySelector("p") || btn;
             const finalLabel = customLabel || CONFIG.BLOCKED_LABEL;
             const finalTooltip = tooltip || "";
+            const blockKey = key || "main";
 
-            // Si ja està bloquejat AMB EL TEXT/TITLE VISIBLES correctes, no
-            // hi tornem. Comparem contra l'estat VISIBLE (no pas contra els
-            // datasets), perquè el caller (`invoiceGuard.process`) ja els
-            // actualitza ABANS de cridar block() — retornar aquí faria que el
-            // text/tooltip del botó no s'actualitzessin mai (és exactament
-            // el bug que es veu a la consola: datasets nous però <p> encara
-            // amb "Consultando documentación..." i title="").
+            // Idempotència: si ja està bloquejat AMB el text/title visibles
+            // correctes, no hi tornem.
             if (
                 btn.dataset.lopdBlocked === "true" &&
                 label.textContent === finalLabel &&
                 btn.title === finalTooltip
             ) {
-                return;
+                return true;
+            }
+
+            // IMPORTANT: capturem el text ORIGINAL del <p> la primera vegada
+            // que bloquegem, per poder restaurar-lo quan tota la documentació
+            // estigui correcta. Sense això, el botó es queda amb el text
+            // "Consultando documentación..." / "Falta la documentación firmada"
+            // per sempre.
+            if (!btn.dataset.lopdOriginalLabel) {
+                btn.dataset.lopdOriginalLabel = label.textContent || "";
             }
 
             label.textContent = finalLabel;
@@ -717,27 +845,300 @@
             btn.dataset.lopdBlocked = "true";
             btn.dataset.lopdLabel = finalLabel;
             btn.dataset.lopdTooltip = finalTooltip;
-            console.log("[Pabau LOPD] Botó bloquejat:", finalLabel, btn);
+            btn.dataset.lopdKey = blockKey;
+            return true;
+        }
+
+        /** Reverteix l'estat d'un botó bloquejat per aquest script. */
+        function unblockOne(btn) {
+            if (!btn) return;
+
+            // IMPORTANT: restaurem el text ORIGINAL del <p> que hem desat
+            // a `data-lopd-original-label` la primera vegada que es va
+            // bloquejar. Si mai no es va arribar a bloquejar (perquè la
+            // documentació ja estava OK de bon principi), no fem res amb
+            // el text.
+            const labelEl = btn.querySelector("p") || btn;
+            if (btn.dataset.lopdOriginalLabel != null) {
+                labelEl.textContent = btn.dataset.lopdOriginalLabel;
+            }
+
+            delete btn.dataset.lopdBlocked;
+            delete btn.dataset.lopdLabel;
+            delete btn.dataset.lopdTooltip;
+            delete btn.dataset.lopdKey;
+            // NOTA: NO esborrem `lopdOriginalLabel` perquè si l'usuari
+            // canvia de tractament/items i torna a haver-hi issues,
+            // puguem tornar a bloquejar i restaurar correctament.
+            // (Sempre mantenim el primer text original capturat.)
+            btn.title = "";
+            btn.disabled = false;
+            btn.style.cssText = "";
+        }
+
+        /**
+         * Bloqueja el botó principal "Guardar cambios".
+         * @param {string} [customLabel]
+         * @param {string} [tooltip]
+         */
+        function block(customLabel, tooltip) {
+            return blockOne(
+                CONFIG.BUTTON_SELECTOR,
+                customLabel,
+                tooltip,
+                "main",
+            );
+        }
+
+        /**
+         * Bloqueja TOTS els botons de mètode de pagament dins del
+         * panell de pagaments. NOMÉS els desactiva + posa tooltip
+         * (no toquem el text intern ni els estils del botó).
+         *
+         * @param {string} [tooltip]
+         * @returns {number} nombre de botons bloquejats
+         */
+        function blockPaymentButtons(tooltip) {
+            const tt =
+                tooltip ||
+                "No es pot cobrar fins que la documentació estigui al dia";
+            const btns = document.querySelectorAll(
+                CONFIG.PAYMENT_BUTTON_SELECTORS,
+            );
+            let n = 0;
+            for (const b of btns) {
+                // Seguretat: només bloquejem els que viuen dins del
+                // panell de pagaments (no toquem cap botó que estigui
+                // fora per error de selector).
+                const inFooter = b.closest(CONFIG.PAYMENT_FOOTER_SELECTOR);
+                if (!inFooter) continue;
+                if (blockPaymentOnNode(b, tt)) n += 1;
+            }
+            return n;
+        }
+
+        /**
+         * Versió "lleugera" del bloqueig: només `disabled` + `title`,
+         * sense alterar el contingut del botó ni els seus estils.
+         * A més, captura el `click` per si React o un altre listener
+         * re-activa el botó: encara que quedi enabled, el clic es
+         * neutralitza.
+         *
+         * IMPORTANT: NO posem `cursor: not-allowed` ni cap altre style
+         * per no modificar l'aspecte del botó. Només el bloquegem
+         * funcionalment.
+         */
+        function blockPaymentOnNode(btn, tooltip) {
+            if (!btn) return false;
+            const tt = tooltip || "";
+
+            // Idempotència: si ja està bloquejat amb el mateix title, no hi tornem.
+            if (
+                btn.dataset.lopdBlocked === "true" &&
+                btn.title === tt
+            ) {
+                return true;
+            }
+
+            // Capturem l'estat de `disabled` ABANS de tocar res per saber,
+            // quan fem unblock, si el botó ja estava desactivat per Pabau
+            // (i per tant NO l'hem de reactivar) o si l'hem desactivat nosaltres.
+            if (btn.dataset.lopdWasDisabled == null) {
+                btn.dataset.lopdWasDisabled = btn.disabled ? "true" : "false";
+            }
+
+            btn.disabled = true;
+            btn.title = tt;
+            btn.dataset.lopdBlocked = "true";
+            btn.dataset.lopdTooltip = tt;
+            btn.dataset.lopdKey = "payment";
+            // NO apliquem cap style.* per no canviar l'aspecte.
+
+            // Reforç: interceptar clics per si la reactivitat de
+            // React torna a activar el botó entre cridades de l'observer.
+            if (!btn.dataset.lopdGuard) {
+                btn.dataset.lopdGuard = "1";
+                btn.addEventListener(
+                    "click",
+                    (ev) => {
+                        if (btn.dataset.lopdBlocked === "true") {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            ev.stopImmediatePropagation();
+                        }
+                    },
+                    true, // capture: interceptem ABANS que React
+                );
+            }
+            return true;
+        }
+
+        /**
+         * Habilita els botons de pagament (perquè tota la documentació
+         * està OK). Fa la inversa exacta de `blockPaymentButtons`.
+         *
+         * IMPORTANT: NOMÉS restablim els botons que HEM BLOQUEJAT
+         * NOSALTRES (els que tenen `data-lopd-blocked="true"`). Si
+         * un botó ja estava `disabled` ABANS que l'script hi toqués
+         * (p. ex. perquè Pabau el desactiva segons algun estat intern
+         * — saldo, validació de targeta, etc.), NO l'hem d'activar
+         * nosaltres: només restaurem els que hem tocat.
+         *
+         * No exigim que visquin dins del PAYMENT_FOOTER_SELECTOR per
+         * la mateixa raó d'abans: quan l'usuari CANVIA DE TAB el
+         * panell queda `aria-hidden="true"` però els botons continuen
+         * sent al DOM; els que estaven bloquejats els desbloquegem
+         * aquí per deixar el DOM net.
+         *
+         * També esborrem `data-lopd-key` i `data-lopd-guard` per
+         * garantir que quan es torni a bloquejar, el listener de
+         * seguretat es tornarà a afegir (idempotentment gràcies a
+         * la comprovació de `lopdGuard`).
+         */
+        function unblockPaymentButtons() {
+            // Només actuem sobre els botons que havíem marcat NOSALTRES
+            // amb `data-lopd-blocked="true"`. D'aquests, restablim
+            // `disabled=false` NOMÉS si nosaltres l'havíem activat
+            // (`data-lopd-was-disabled === "false"`); si ja estava
+            // disabled quan el vam trobar (Pabau el desactiva per
+            // saldo/validació/etc.) el deixem tal com estava.
+            const btns = document.querySelectorAll(
+                `${CONFIG.PAYMENT_BUTTON_SELECTORS}[data-lopd-blocked="true"]`,
+            );
+            let restored = 0;
+            let skipped = 0;
+            for (const b of btns) {
+                const wasOurs =
+                    b.dataset.lopdWasDisabled === "false";
+
+                // En tots dos casos Netegem els marcadors i el `title`.
+                delete b.dataset.lopdBlocked;
+                delete b.dataset.lopdTooltip;
+                delete b.dataset.lopdKey;
+                b.title = "";
+
+                if (!wasOurs) {
+                    // Ja estava disabled abans del nostre bloqueig:
+                    // deixem `disabled=true` (Pabau ho volia així).
+                    skipped += 1;
+                    continue;
+                }
+
+                // L'havíem desactivat nosaltres: el reactivem.
+                b.disabled = false;
+                restored += 1;
+            }
+            if (btns.length > 0) {
+                console.log(
+                    `[Pabau LOPD] unblockPaymentButtons: total=${btns.length}, restored=${restored}, skipped(botons-que-Pabau-tenia-disabled)=${skipped}`,
+                );
+            }
+        }
+
+        /**
+         * Versió "instantània" del bloqueig: sense comprovar idempotència,
+         * sense canviar el text. Pensada per ser cridada des d'un
+         * MutationObserver que acaba de detectar que els botons acaben
+         * de ser muntats al DOM.
+         *
+         * CRUCIAL: NO modifiquem NI EL COLOR NI EL text INTERN del botó.
+         * Només fem `disabled=true` + `title` (per al tooltip) + capture
+         * del click. Així, quan l'usuari surti del panel, els botons
+         * continuen tenint el seu color i forma originals de Pabau.
+         */
+        function forceBlockAllPaymentButtons(tooltip) {
+            const tt = tooltip || "Revisando documentación...";
+            const btns = document.querySelectorAll(
+                CONFIG.PAYMENT_BUTTON_SELECTORS,
+            );
+            let touched = 0;
+            for (const b of btns) {
+                // Seguretat: només toquem els que estan DINS del footer
+                // del panel de pagaments (no toquem CSS fora d'aquí).
+                const inFooter = b.closest(CONFIG.PAYMENT_FOOTER_SELECTOR);
+                if (!inFooter) continue;
+
+                // Capturem l'estat inicial de `disabled` per si Pabau
+                // el tenia ja desactivat; així quan fem unblock sabem
+                // si l'hem de reactivar o no.
+                if (b.dataset.lopdWasDisabled == null) {
+                    b.dataset.lopdWasDisabled = b.disabled ? "true" : "false";
+                }
+
+                // NO modifiquem: backgroundColor, color, borderColor,
+                // opacity, ni el text intern del botó.
+                b.disabled = true;
+                b.title = tt;
+                b.dataset.lopdBlocked = "true";
+                b.dataset.lopdTooltip = tt;
+                b.dataset.lopdKey = "payment";
+                // NO posem style.cursor ni style.cssText: volem que el
+                // botó conservi el seu aspecte original de Pabau.
+
+                // Listener de seguretat (idempotent)
+                if (!b.dataset.lopdGuard) {
+                    b.dataset.lopdGuard = "1";
+                    b.addEventListener(
+                        "click",
+                        (ev) => {
+                            if (b.dataset.lopdBlocked === "true") {
+                                ev.preventDefault();
+                                ev.stopPropagation();
+                                ev.stopImmediatePropagation();
+                            }
+                        },
+                        true,
+                    );
+                }
+                touched += 1;
+            }
+            console.log(
+                `[Pabau LOPD] forceBlockAllPaymentButtons: ${touched} botons desactivats (footer)`,
+            );
         }
 
         function unblockAll() {
+            // 1) Botó principal (text + estils vermells)
+            const main = document.querySelector(
+                `${CONFIG.BUTTON_SELECTOR}[data-lopd-blocked]`,
+            );
+            if (main) unblockOne(main);
+
+            // 2) Botons de pagament: els DESBLOQUEGEM sempre. Abans
+            //    els manteníem bloquejats per defecte ("Revisando..."),
+            //    però ara sabem que quan l'usuari surt del panell de
+            //    pagaments ja no té sentit mantenir-los deshabilitats:
+            //    la propera vegada que entri al panell, `process()`
+            //    tornarà a bloquejar els que toqui (preventiu o per
+            //    issues reals).
+            unblockPaymentButtons();
+
+            // 3) IMPORTANT: netejar TOTS els marcadors de lopd al DOM,
+            //    no només als elements actualment bloquejats. Si el botó
+            //    principal ja no té [data-lopd-blocked] però encara té
+            //    [data-lopd-checked] o [data-lopd-key], la propera
+            //    crida a process() pensarà que ja està processat i NO
+            //    tornarà a bloquejar res quan l'usuari torni al panel.
             document
                 .querySelectorAll(
-                    `${CONFIG.BUTTON_SELECTOR}[data-lopd-blocked]`,
+                    `${CONFIG.BUTTON_SELECTOR}[data-lopd-key], ${CONFIG.BUTTON_SELECTOR}[data-lopd-checked]`,
                 )
                 .forEach((b) => {
-                    delete b.dataset.lopdBlocked;
-                    delete b.dataset.lopdChecked;
                     delete b.dataset.lopdKey;
+                    delete b.dataset.lopdChecked;
                     delete b.dataset.lopdLabel;
                     delete b.dataset.lopdTooltip;
-                    b.title = "";
-                    b.disabled = false;
-                    b.style.cssText = "";
                 });
         }
 
-        return { block, unblockAll };
+        return {
+            block,
+            unblockOne,
+            blockPaymentButtons,
+            unblockPaymentButtons,
+            forceBlockAllPaymentButtons,
+            unblockAll,
+        };
     })();
 
     /* =========================================================================
@@ -759,8 +1160,37 @@
 
     const invoiceGuard = (() => {
         const processedViews = new Set(); // memo: clientId|invoiceNo
-        const buttonObservers = new WeakMap(); // btn -> MutationObserver
         let inFlight = null; // Promise de la validació en curs (per evitar duplicats)
+        let tabObserver = null; // MutationObserver dedicat als panels rc-tabs
+
+        /**
+         * Comprova si el panel de pagaments (3a pestanya de la pàgina
+         * /financial) està actualment actiu. Retorna true NOMÉS quan
+         * el div existeix I té aria-hidden="false".
+         *
+         * Si el panel no existeix (p. ex. l'usuari està en una altra
+         * pestanya o la pàgina encara no ha renderitzat les tabs),
+         * retornem false. El MutationObserver de `install()` ens
+         * tornarà a cridar quan el DOM canviï, de manera que el
+         * script segueix "funcionant" fins que troba el panel.
+         */
+        function isPaymentTabActive() {
+            return (
+                document.querySelectorAll(CONFIG.PAYMENT_PANEL_SELECTOR)
+                    .length > 0
+            );
+        }
+
+        /**
+         * Retorna TOTS els elements `*-panel-N` que existeixin al DOM
+         * (independint del seu aria-hidden). Serveix per saber a quins
+         * panels hem de subscriure'ns amb l'observer de tabs.
+         */
+        function allTabPanels() {
+            return Array.from(
+                document.querySelectorAll('[id$="panel-0"], [id$="panel-1"], [id$="panel-2"], [id$="panel-3"], [id$="panel-4"]'),
+            );
+        }
 
         function clientIdFromPath(pathname) {
             const m = pathname.match(/^\/clients\/(\d+)\//);
@@ -775,6 +1205,18 @@
             const oldClient = clientIdFromPath(new URL(oldHref).pathname);
             const newClient = clientIdFromPath(location.pathname);
             if (oldClient !== newClient) processedViews.clear();
+        }
+
+        /**
+         * S'ha canviat la pestanya activa. Si hem SORTIT del panel de
+         * pagaments → desbloquegem TOT immediatament (botons de pagament
+         * inclosos). Si hem ENTRAT al panel de pagaments → el `process()`
+         * ja s'encarregarà a través de l'observer del `install()`.
+         */
+        function handleTabChange() {
+            if (!isPaymentTabActive()) {
+                buttonGuard.unblockAll();
+            }
         }
 
         /** Format amigable d'un issue per al tooltip. */
@@ -806,12 +1248,14 @@
 
         /**
          * Text llarg que es mostra al `title` del botó (tooltip natiu).
-         * Llista cada issue separat per " · ".
+         * Cada issue va en una LÍNIA nova (`\n`); els navegadors moderns
+         * (Chrome/Firefox/Edge/Safari) respecten els salts de línia al
+         * tooltip natiu i els mostren com a línies separades.
          */
         function buildTooltip(result) {
             const issues = (result && result.issues) || [];
             if (issues.length === 0) return null;
-            return issues.map(fmtIssue).join(" · ");
+            return issues.map(fmtIssue).join("\n");
         }
 
         /**
@@ -829,29 +1273,58 @@
             const btn = document.querySelector(CONFIG.BUTTON_SELECTOR);
             if (!btn) return;
 
+            // Només actuem quan el panel de pagaments està actiu.
+            // Si no existeix o no està visible, NO fem res — el
+            // MutationObserver del bootstrap ens tornarà a cridar
+            // quan el DOM canviï (canvi de tab, muntatge inicial, etc.).
+            if (!isPaymentTabActive()) return;
+
             const invoiceNo = invoiceStore.invoiceNo;
             if (!invoiceNo) return; // encara no tenim número de factura
 
             const cacheKey = `${clientId}|${invoiceNo}`;
 
-            // 1) Ja hem marcat aquesta combinació al botó → no fem res.
-            if (btn.dataset.lopdKey === cacheKey) return;
+            // 1) Ja estem processant aquesta combinació en aquest botó
+            //    concret → no fem res. Usem `lopdChecked` (no pas
+            //    `lopdKey`) perquè l'`unblockAll()` esborra TOTS els
+            //    marcadors en sortir del panel, de manera que quan
+            //    l'usuari TORN al panel, `lopdChecked` és undefined i
+            //    podem tornar a aplicar el bloqueig.
+            if (btn.dataset.lopdChecked === cacheKey) return;
 
             // 2) Ja tenim el resultat a memòria → reapliquem (no cal consultar).
             if (processedViews.has(cacheKey)) {
-                btn.dataset.lopdKey = cacheKey;
-                buttonGuard.block(
-                    btn.dataset.lopdLabel || CONFIG.BLOCKED_LABEL,
-                    btn.dataset.lopdTooltip || "",
-                );
+                btn.dataset.lopdChecked = cacheKey;
+                // Distingim "OK" vs "amb issues" mirant si hi havia cap
+                // label desat. Les factures OK es guarden amb lopdLabel=""
+                // i les que tenen issues amb lopdLabel="Faltan/caducan N".
+                const hadIssues = !!btn.dataset.lopdLabel;
+                if (hadIssues) {
+                    buttonGuard.block(
+                        btn.dataset.lopdLabel,
+                        btn.dataset.lopdTooltip || "",
+                    );
+                    buttonGuard.blockPaymentButtons(
+                        btn.dataset.lopdTooltip || "",
+                    );
+                } else {
+                    // La factura estava OK → restaurem el text ORIGINAL
+                    // del botó (no pas el text per defecte "Falta la
+                    // documentación firmada") i habilitem els pagaments.
+                    buttonGuard.unblockOne(btn);
+                    buttonGuard.unblockPaymentButtons();
+                }
                 return;
             }
 
             // 3) Bloquegem immediatament amb el text de "consultant"
             //    perquè l'usuari no pugui prémer el botó durant les crides.
+            //    També bloquegem els botons de pagament (sempre deshabilitats
+            //    per defecte; només s'habilitaran si la validació és OK).
             //    Marquem el botó amb el cacheKey per evitar duplicar feina.
             buttonGuard.block(CONFIG.CONSULTING_LABEL, "");
-            btn.dataset.lopdKey = cacheKey;
+            buttonGuard.blockPaymentButtons(CONFIG.CONSULTING_LABEL);
+            btn.dataset.lopdChecked = cacheKey;
             btn.dataset.lopdLabel = CONFIG.CONSULTING_LABEL;
             btn.dataset.lopdTooltip = "";
 
@@ -859,10 +1332,19 @@
             //    → esperem-la i reapliquem el resultat.
             if (inFlight && inFlight.key === cacheKey) {
                 await inFlight.promise;
-                buttonGuard.block(
-                    btn.dataset.lopdLabel || CONFIG.BLOCKED_LABEL,
-                    btn.dataset.lopdTooltip || "",
-                );
+                const hadIssues = !!btn.dataset.lopdLabel;
+                if (hadIssues) {
+                    buttonGuard.block(
+                        btn.dataset.lopdLabel,
+                        btn.dataset.lopdTooltip || "",
+                    );
+                    buttonGuard.blockPaymentButtons(
+                        btn.dataset.lopdTooltip || "",
+                    );
+                } else {
+                    buttonGuard.unblockOne(btn);
+                    buttonGuard.unblockPaymentButtons();
+                }
                 return;
             }
 
@@ -897,7 +1379,6 @@
                     items: (result.items || []).map((it) => it.item_name),
                     issues: (result.issues || []).length,
                     label,
-                    tooltip,
                 },
             );
 
@@ -906,31 +1387,37 @@
                 btn.dataset.lopdTooltip = tooltip || "";
                 buttonGuard.block(label, tooltip);
 
-                // Si React remunta el botó, el tornem a bloquejar amb el
-                // label/tooltip que ja hem desat al dataset.
-                if (!buttonObservers.has(btn)) {
-                    const mo = new MutationObserver(() => {
-                        const fresh = document.querySelector(
-                            CONFIG.BUTTON_SELECTOR,
-                        );
-                        if (fresh && !fresh.dataset.lopdBlocked) {
-                            buttonGuard.block(
-                                fresh.dataset.lopdLabel ||
-                                    CONFIG.BLOCKED_LABEL,
-                                fresh.dataset.lopdTooltip || "",
-                            );
-                        }
-                    });
-                    mo.observe(document.body, {
-                        childList: true,
-                        subtree: true,
-                    });
-                    buttonObservers.set(btn, mo);
-                }
+                // També bloquegem tots els botons de mètode de pagament
+                // (Credit, Points, Card, Cash, Vouchers, etc.) del
+                // panell de pagaments. Només els desactivem + tooltip,
+                // SENSE tocar el text intern ni els estils del botó.
+                buttonGuard.blockPaymentButtons(
+                    tooltip ||
+                        "No es pot cobrar fins que la documentació estigui al dia",
+                );
+                // NOTA: NO creem cap MutationObserver intern aquí.
+                // L'únic observer que ens interessa és el del `install()`,
+                // que ja torna a cridar `process()` quan canvii el DOM.
+                // Si en creéssim un, reblocaríem el botó encara que
+                // l'usuari hagi canviat a una altra tab (el panel
+                // rc-tabs-*-panel-2 segueix sent al DOM, només ha canviat
+                // el seu aria-hidden).
             } else {
+                // Tota la documentació és correcta → habilitem els
+                // botons de pagament (fins ara estaven deshabilitats
+                // per defecte). El botó principal ha de tornar al seu
+                // text ORIGINAL (p. ex. "Guardar cambios"), NO pas al
+                // "Consultando documentación..." que hem posat mentre
+                // consultàvem l'API.
+                //
+                // Marquem explícitament `lopdLabel=""` per distingir
+                // aquesta factura de les que tenen issues en el replay
+                // (veure branca `processedViews.has(cacheKey)` dins
+                // `process()`).
                 btn.dataset.lopdLabel = "";
                 btn.dataset.lopdTooltip = "";
-                buttonGuard.unblockAll();
+                buttonGuard.unblockOne(btn);
+                buttonGuard.unblockPaymentButtons();
             }
         }
 
@@ -944,6 +1431,35 @@
             const ensureDom = () => {
                 const clientId = clientIdFromPath(location.pathname);
                 if (!clientId) return;
+
+                // CAS 1: NO estem al panel de pagaments.
+                // → Els botons tornen al seu color/estat originals de
+                //   Pabau (no els hem tocat mai CSS) i netegem markers.
+                if (!isPaymentTabActive()) {
+                    buttonGuard.unblockPaymentButtons();
+                    return;
+                }
+
+                // CAS 2: Panel actiu.
+                // Bloquegem preventivament NOMÉS una vegada (quan encara
+                // no tenim el resultat de l'API en memòria). Després,
+                // `process()` ja s'encarrega de mantenir l'estat correcte.
+                //
+                // IMPORTANT: hem d'evitar re-bloquejar cada vegada que
+                // l'observer es dispara (passa centenars de vegades per
+                // segon). Per això comprovem `processedViews.has(cacheKey)`.
+                const invoiceNo = invoiceStore.invoiceNo;
+                const cacheKey =
+                    invoiceNo != null ? `${clientId}|${invoiceNo}` : null;
+                const alreadyProcessed =
+                    cacheKey != null && processedViews.has(cacheKey);
+
+                if (!alreadyProcessed) {
+                    buttonGuard.forceBlockAllPaymentButtons(
+                        "Revisando documentación...",
+                    );
+                }
+
                 process({ apiKey: key, clientId });
             };
 
@@ -954,6 +1470,34 @@
             }
             const mo = new MutationObserver(ensureDom);
             mo.observe(document.body, { childList: true, subtree: true });
+
+            // Observer específic per detectar canvis de tab dins de
+            // /financial. Quan l'aria-hidden d'un panel canvia,
+            // mirem si estem al panel de pagaments o no.
+            const subscribeTabPanels = () => {
+                if (tabObserver) tabObserver.disconnect();
+                tabObserver = new MutationObserver(handleTabChange);
+                for (const panel of allTabPanels()) {
+                    tabObserver.observe(panel, {
+                        attributes: true,
+                        attributeFilter: ["aria-hidden", "class"],
+                    });
+                }
+            };
+            subscribeTabPanels();
+
+            // Re-subscriure quan el body canviï (per si React remunta
+            // les tabs, cosa que passa sovint a la SPA).
+            const tabResub = new MutationObserver(() => {
+                const panels = allTabPanels();
+                if (panels.length === 0) return;
+                // Comprovem si ja estem observant tots els panels.
+                // Si n'hi ha cap de nou, re-subscriure.
+                const current = tabObserver ? tabObserver.takeRecords() : [];
+                if (current.length > 0) return;
+                subscribeTabPanels();
+            });
+            tabResub.observe(document.body, { childList: true, subtree: true });
         }
 
         return { install };
@@ -967,13 +1511,6 @@
      * ======================================================================= */
 
     function bootstrap() {
-        // Log de diagnòstic: si NO veus això a la consola, l'script no s'injecta
-        console.log(
-            "%c[Pabau LOPD] Bootstrap iniciat a " + location.href,
-            "background:#28a745;color:#fff;padding:2px 6px;border-radius:3px;",
-        );
-
-        const url = new URL(window.location.href);
         // El @match cobreix tota l'app Pabau, però el bloqueig del botó
         // només s'aplica quan location.pathname és /clients/<id>/...
         // (ho gestiona invoiceGuard.process → clientIdFromPath).
@@ -1000,10 +1537,14 @@
 
         invoiceGuard.install({ apiKey: key });
         const initialClientId = location.pathname.match(/^\/clients\/(\d+)\//);
+        const handlerLabel = IS_USERScripts
+            ? "Userscripts (iOS Safari)"
+            : (typeof GM_info !== "undefined" && GM_info.scriptHandler) || "Tampermonkey";
         console.log(
-            `[Pabau LOPD] Bootstrap complet${
-                initialClientId ? ` per al client ${initialClientId[1]}` : ""
-            } (referrer=${url.searchParams.get("referrer")})`,
+            `%c[Pabau LOPD] Actiu a ${location.pathname}${
+                initialClientId ? ` (client ${initialClientId[1]})` : ""
+            } · ${handlerLabel}`,
+            "background:#28a745;color:#fff;padding:2px 6px;border-radius:3px;",
         );
         // Reaccionar també a canvis de valor de #invoice un cop muntat
         // (Pabau pot injectar-lo més tard que el #operation-create).
