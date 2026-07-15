@@ -16,42 +16,51 @@
  * NOTA IMPORTANT — AQUESTA VERSIÓ ESTÀ ADAPTADA PER A "USERScripts"
  * ---------------------------------------------------------------------------
  * Diferències respecte la versió Tampermonkey:
- *   1. No inclou `@sandbox JavaScript` (Userscripts ho ignora i podria
- *      generar warnings).
- *   2. No usa cap `unsafeWindow` ni accedeix a cap API privada.
- *   3. Usa `@grant none` (i NO declara cap GM_* al header). Això és
- *      CRÍTIC per a Userscripts ≥ 1.2.1 (iOS): veure
- *      https://github.com/quoid/userscripts/issues/265
  *
- *      Quan un script declara `@grant` amb qualsevol valor
- *      (GM_setValue, GM_xmlhttpRequest, etc.), Userscripts l'injecta
- *      forçadament en **content script context**, on les APIs GM_*
- *      NO existeixen per defecte → `ReferenceError: Can't find variable:
- *      GM_getValue` i l'script peta a la primera crida.
+ *   1. NO utilitza les APIs GM_* (GM_setValue, GM_getValue,
+ *      GM_xmlhttpRequest, GM_registerMenuCommand, GM_info).
  *
- *      La solució correcta per a iOS Safari és:
+ *      A Userscripts ≥ 1.2.1 (iOS Safari), les APIs GM_* ja NO estan
+ *      exposades ni al page context ni al content context — és una
+ *      breaking change de l'API de l'extensió. Veure:
+ *        https://github.com/quoid/userscripts/issues/265
  *
- *        - `@grant none`   → desactiva el sandbox privilegiat
- *        - Sense `@grant` per a cap GM_*
- *        - Sense `@inject-into`  (per defecte = `auto` = page context)
+ *      Per aquesta raó, tot el que la versió Tampermonkey fa amb GM_*
+ *      aquí es fa amb APIs natives del navegador que sempre estan
+ *      disponibles al **page context** (on Userscripts injecta amb
+ *      `@grant none`):
  *
- *      En aquest mode Userscripts injecta el codi al **page context**
- *      (mateix que la resta de JS de la pàgina) i les APIs GM_*
- *      s'exposen globalment via un bridge intern de l'extensió,
- *      exactament igual que a Tampermonkey.
+ *        | Tampermonkey (GM_*)        | Userscripts (nadiu)               |
+ *        | -------------------------- | --------------------------------- |
+ *        | GM_setValue / GM_getValue  | localStorage.setItem / .getItem   |
+ *        | GM_xmlhttpRequest          | fetch() (amb credentials)         |
+ *        | GM_registerMenuCommand     | (no disponible — veure menú propi |
+ *        |                            |  a sota)                          |
+ *        | GM_info                    | (no disponible — es llegeix       |
+ *        |                            |  `navigator.userAgent` o s'infereix |
+ *        |                            |  per presència d'usuari Safari)    |
  *
- *      NOTA: Si en algun moment cal activar les APIs des del content
- *      context (p. ex. des d'un altre @require o des del background),
- *      caldria afegir `@grant` i creuar les dades amb postMessage
- *      (veure https://github.com/quoid/userscripts/issues/252#issuecomment-1242540493).
- *      Per a aquest script NO cal — tot el codi viu al page context.
+ *   2. Persistència de l'API key: localStorage del navegador Safari.
+ *      A iOS, localStorage és persistent entre sessions dins de la
+ *      mateixa instal·lació de l'app Userscripts.
+ *
+ *   3. No utilitza `unsafeWindow` ni cap API interna del navegador.
+ *      Tot l'accés al DOM és estàndard (querySelector, addEventListener).
  *
  *   4. S'afegeix `@noframes` perquè Userscripts (i Tampermonkey) només
  *      s'injectin al frame principal de Pabau.
  *
- * Si tens Tampermonkey instal·lat (Mac/Chrome/Edge), usa la versió
- * `TamperMonkey_documentacion_script_3.js`. Aquesta versió només
- * és necessària per a iOS Safari amb l'extensió Userscripts.
+ * LIMITACIONS CONEGUDES A iOS:
+ *   - L'API key queda emmagatzemada a localStorage en text pla (no
+ *     xifrada). És un risc similar al que tindria una "user script
+ *     clàssica" sense sandbox.
+ *   - No hi ha menú de l'extensió. Per canviar l'API key cal navegar
+ *     a un altre client — el primer cop que l'script troba a faltar
+ *     la clau torna a mostrar el `prompt()`.
+ *
+ * Si tens Tampermonkey instal·lat (Mac/Chrome/Edge/Firefox), usa la
+ * versió `TamperMonkey_documentacion_script_3.js`. Aquesta versió
+ * és l'única opció per a iOS Safari amb l'extensió Userscripts ≥ 1.2.1.
  * ===========================================================================
  */
 
@@ -77,16 +86,16 @@
     /* =========================================================================
      * 0. DETECCIÓ DE PLATAFORMA
      * ----------------------------------------------------------------------
-     * Si per algun motiu el fitxer s'acaba executant dins d'un context
-     * Tampermonkey igualment, no passa res: totes les GM_* APIs estan
-     * disponibles a les dues extensions. Aquesta detecció és només
-     * informativa per als missatges de consola.
+     * Com que GM_info tampoc està disponible a Userscripts ≥ 1.2.1,
+     * detectem el context pel `userAgent` de Safari i per la presència
+     * de window.safari (indicador de l'API de l'extensió Userscripts).
+     * Aquesta detecció és NOMÉS informativa per als missatges de consola
+     * i no afecta el comportament de l'script.
      * ======================================================================= */
     const IS_USERScripts =
-        typeof GM_info === "object" &&
-        GM_info !== null &&
-        typeof GM_info.scriptHandler !== "undefined" &&
-        GM_info.scriptHandler.toLowerCase().indexOf("userscripts") !== -1;
+        typeof navigator !== "undefined" &&
+        /Safari/.test(navigator.userAgent) &&
+        !/Chrome|Chromium|Android/.test(navigator.userAgent);
 
     /* =========================================================================
      * 1. CONSTANTS I SELECTORS
@@ -422,48 +431,93 @@
     /* =========================================================================
      * 4. MÒDUL: apiKey
      * ----------------------------------------------------------------------
-     * Emmagatzema la clau d'API amb GM_setValue (xifrada per l'extensió).
-     * Si no n'hi ha, la demana amb prompt(); ofereix un menú per canviar-la.
+     * Emmagatzema la clau d'API a localStorage del navegador.
      *
-     * NOTA Userscripts (iOS Safari): usem `@grant none` al header → l'script
-     * corre en **page context** i les APIs GM_* s'exposen globalment via
-     * un bridge intern de l'extensió (veure capçalera). Per tant
-     * GM_setValue / GM_getValue / GM_xmlhttpRequest / GM_registerMenuCommand
-     * / GM_info funcionen exactament igual que a Tampermonkey. La
-     * diferència és que Userscripts desa les dades a localStorage del
-     * navegador (no xifrades igual que Tampermonkey), però per una sola
-     * clau d'API no és un risc rellevant.
+     * NOTA iOS Safari / Userscripts ≥ 1.2.1: les APIs GM_setValue / GM_getValue
+     * ja no estan exposades (veure capçalera). En el seu lloc usem
+     * localStorage, que és persistent dins la mateixa instal·lació
+     * de l'extensió Userscripts a Safari.
+     *
+     * A canvi, no hi ha `GM_registerMenuCommand` — l'usuari pot canviar
+     * la clau navegant a una URL /clients/<id>/?__change_lopd_key=1 (veure
+     * `changeKeyShortcut()` més avall).
      * ======================================================================= */
 
     const apiKey = (() => {
+        /** Prefix per evitar col·lisions amb altres scripts al mateix localStorage. */
+        const LS_KEY = `pabau_lopd.${CONFIG.STORAGE_KEY}`;
+
         function get() {
-            let key = GM_getValue(CONFIG.STORAGE_KEY, "");
+            let key = "";
+            try {
+                key = window.localStorage.getItem(LS_KEY) || "";
+            } catch (e) {
+                // localStorage pot estar desactivat en mode privat de Safari.
+                console.warn("[Pabau LOPD] localStorage no accessible:", e);
+            }
             if (!key) {
                 key = prompt(
-                    "Introdueix la teva API key de Pabau (es desarà xifrada):",
+                    "Introdueix la teva API key de Pabau (es desarà localment):",
                 );
-                if (key) GM_setValue(CONFIG.STORAGE_KEY, key.trim());
+                if (key) {
+                    try {
+                        window.localStorage.setItem(
+                            LS_KEY,
+                            key.trim(),
+                        );
+                    } catch (e) {
+                        console.error(
+                            "[Pabau LOPD] No s'ha pogut desar la clau:",
+                            e,
+                        );
+                    }
+                }
             }
             return key;
         }
 
         function clear() {
-            GM_setValue(CONFIG.STORAGE_KEY, "");
+            try {
+                window.localStorage.removeItem(LS_KEY);
+            } catch (e) {
+                /* noop */
+            }
+        }
+
+        /**
+         * Com que Userscripts no ofereix menú propi (GM_registerMenuCommand
+         * tampoc funciona a iOS), afegim un "trigger" per URL: si la URL
+         * conté `?__change_lopd_key=1`, obrim un prompt per canviar-la.
+         * Es pot cridar manualment des de la consola:
+         *
+         *   location.search = '?__change_lopd_key=1';
+         *
+         * o afegint un bookmarklet:
+         *
+         *   javascript:location.search='?__change_lopd_key=1';
+         */
+        function changeKeyShortcut() {
+            const url = new URL(location.href);
+            if (url.searchParams.get("__change_lopd_key") !== "1") return;
+            url.searchParams.delete("__change_lopd_key");
+            history.replaceState(null, "", url.toString());
+            const next = prompt(
+                "Nova API key de Pabau (deixa buit per mantenir l'actual):",
+                "",
+            );
+            if (next && next.trim()) {
+                try {
+                    window.localStorage.setItem(LS_KEY, next.trim());
+                    alert("API key actualitzada. Recarrega la pàgina.");
+                } catch (e) {
+                    alert("Error desant la clau: " + e);
+                }
+            }
         }
 
         function registerMenu() {
-            GM_registerMenuCommand("🔑 Modificar API key", () => {
-                // ⚠️ Per seguretat NO mostrem l'API key actual.
-                // L'usuari ha de tornar-la a teclejar sencera.
-                const next = prompt(
-                    "Nova API key (es deixa buit per seguretat — cal tornar-la a escriure):",
-                    "",
-                );
-                if (next && next.trim()) {
-                    GM_setValue(CONFIG.STORAGE_KEY, next.trim());
-                    alert("API key actualitzada. Recarrega la pàgina.");
-                }
-            });
+            // No-op a Userscripts. Es delega en `changeKeyShortcut()`.
+            changeKeyShortcut();
         }
 
         return { get, clear, registerMenu };
@@ -473,17 +527,41 @@
      * 5. MÒDUL: documentsApi
      * ----------------------------------------------------------------------
      * Encapsula la consulta a l'API de Pabau per saber si el client té
-     * LOPD_FIRMADO.pdf. Necessita `GM_xmlhttpRequest` per saltar CORS.
+     * LOPD_FIRMADO.pdf. Usa `fetch` natiu (no GM_xmlhttpRequest) per
+     * compatibilitat amb Userscripts ≥ 1.2.1 a iOS Safari.
+     *
+     * NOTA CORS: la pàgina https://app.pabau.com NO és el mateix origen
+     * que https://api.oauth.pabau.com, per la qual cosa `fetch` rebrà
+     * una resposta amb CORS. Si Pabau no envia
+     * `Access-Control-Allow-Origin: https://app.pabau.com`, el `fetch`
+     * fallarà amb "TypeError: Failed to fetch".
+     *
+     * En aquest cas l'script LOGUEJARÀ l'error i no bloquejarà cap botó
+     * (la política del README és "error de xarxa → no bloqueig"). Si es
+     * dóna aquest cas a iOS, caldrà revisar el tractament CORS del
+     * servidor — una alternativa seria afegir `?callback=...` JSONP, però
+     * Pabau no l'ofereix. En cas de necessitat, es pot tornar a la
+     * versió Tampermonkey o obrir un túnel.
      * ======================================================================= */
 
     const documentsApi = (() => {
+        function fetchPabau(url) {
+            // API key va a la URL (path), no a Authorization header — Pabau
+            // ho accepta així per a scripts de servidor.
+            return fetch(url, {
+                method: "GET",
+                credentials: "include",
+                headers: { Accept: "application/json" },
+            });
+        }
+
         /**
          * Cerca un document pel títol exacte dins els documents del client.
          * Retorna TOTS els resultats (ordenats DESC per l'API) perquè el
          * caller pugui decidir quin fer servir (p. ex. el més recent).
          * @returns {Promise<{found: boolean, documents: Array, document: object|null}>}
          */
-        function findDocument({ apiKey: key, clientId, documentName }) {
+        async function findDocument({ apiKey: key, clientId, documentName }) {
             // Pabau desatitza els noms pujats substituint cada caràcter
             // accentuat per la vocal/n lletja + "?". El seu cercador
             // /clients/{id}/documents?search=... és LITERAL, per la qual
@@ -497,70 +575,61 @@
                 `?order=DESC&per_page=50&page=1` +
                 `&search=${encodeURIComponent(searchTerm)}`;
 
-            return new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
-                    method: "GET",
-                    url,
-                    headers: { Accept: "application/json" },
-                    onload: (res) => {
-                        if (res.status === 200) {
-                            try {
-                                const data = JSON.parse(res.responseText);
-                                const list =
-                                    data.documents ||
-                                    data.results ||
-                                    data.data ||
-                                    [];
-                                const target = documentName.toLowerCase();
-                                // Acceptem coincidència contra:
-                                //   - El nom ORIGINAL amb accents (si un
-                                //     dia Pabau corregeix la sanitització).
-                                //   - El nom MANGLED que Pabau ha desat.
-                                //   - La variant MANGLED sense "?" (per si
-                                //     algun cop es queda sense "?" però
-                                //     encara sense accents).
-                                const targetMangled =
-                                    accents.mangle(documentName).toLowerCase();
-                                const targetStripped =
-                                    targetMangled.replace(/\?/g, "");
-                                const matches = list.filter((d) => {
-                                    const name = (
-                                        d.photo_title ||
-                                        d.name ||
-                                        d.filename ||
-                                        d.title ||
-                                        ""
-                                    ).toLowerCase();
-                                    return (
-                                        name === target ||
-                                        name === targetMangled ||
-                                        name === targetStripped
-                                    );
-                                });
-                                resolve({
-                                    found: matches.length > 0,
-                                    documents: matches,
-                                    document: matches[0] || null,
-                                });
-                            } catch (e) {
-                                reject(new Error("Resposta JSON no vàlida"));
-                            }
-                        } else if (res.status === 401 || res.status === 403) {
-                            apiKey.clear();
-                            reject(
-                                new Error("API key invàlida — s'ha esborrat"),
-                            );
-                        } else {
-                            reject(
-                                new Error(
-                                    `HTTP ${res.status}: ${res.statusText}`,
-                                ),
-                            );
-                        }
-                    },
-                    onerror: () => reject(new Error("Error de xarxa")),
-                });
-            });
+            let res;
+            try {
+                res = await fetchPabau(url);
+            } catch (err) {
+                // Error de xarxa o de CORS — no podem distingir-los des
+                // d'aquí. Política: NO bloquegem cap botó.
+                throw new Error("Error de xarxa o CORS: " + err.message);
+            }
+
+            if (res.status === 200) {
+                try {
+                    const data = await res.json();
+                    const list =
+                        data.documents || data.results || data.data || [];
+                    const target = documentName.toLowerCase();
+                    // Acceptem coincidència contra:
+                    //   - El nom ORIGINAL amb accents (si un dia Pabau
+                    //     corregeix la sanitització).
+                    //   - El nom MANGLED que Pabau ha desat.
+                    //   - La variant MANGLED sense "?" (per si algun cop
+                    //     es queda sense "?" però encara sense accents).
+                    const targetMangled =
+                        accents.mangle(documentName).toLowerCase();
+                    const targetStripped =
+                        targetMangled.replace(/\?/g, "");
+                    const matches = list.filter((d) => {
+                        const name = (
+                            d.photo_title ||
+                            d.name ||
+                            d.filename ||
+                            d.title ||
+                            ""
+                        ).toLowerCase();
+                        return (
+                            name === target ||
+                            name === targetMangled ||
+                            name === targetStripped
+                        );
+                    });
+                    return {
+                        found: matches.length > 0,
+                        documents: matches,
+                        document: matches[0] || null,
+                    };
+                } catch (e) {
+                    throw new Error("Resposta JSON no vàlida");
+                }
+            } else if (res.status === 401 || res.status === 403) {
+                apiKey.clear();
+                throw new Error("API key invàlida — s'ha esborrat");
+            } else {
+                throw new Error(
+                    `HTTP ${res.status}: ${res.statusText || ""}`,
+                );
+            }
         }
 
         return { findDocument };
@@ -574,70 +643,69 @@
      * requerit ja resolt pel mapa `treatmentsConfig`.
      * ======================================================================= */
     const invoiceApi = (() => {
+        function fetchPabau(url) {
+            return fetch(url, {
+                method: "GET",
+                credentials: "include",
+                headers: { Accept: "application/json" },
+            });
+        }
+
         /**
          * @returns {Promise<{found: boolean, items: Array, raw: object|null}>}
          */
-        function getByInvoiceNo({ apiKey: key, invoiceNo }) {
+        async function getByInvoiceNo({ apiKey: key, invoiceNo }) {
             const url =
                 `${CONFIG.API_BASE}/${encodeURIComponent(key)}` +
                 `/invoices?inv_no=${encodeURIComponent(invoiceNo)}`;
 
-            return new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
-                    method: "GET",
-                    url,
-                    headers: { Accept: "application/json" },
-                    onload: (res) => {
-                        if (res.status === 200) {
-                            try {
-                                const data = JSON.parse(res.responseText);
-                                const list = data.invoices || [];
-                                if (list.length === 0) {
-                                    resolve({ found: false, items: [], raw: data });
-                                    return;
-                                }
-                                const inv = list[0];
-                                const rawItems = Array.isArray(inv.items) ? inv.items : [];
-                                const items = rawItems.map((it) => {
-                                    const tx =
-                                        treatmentsConfig.getById(it.product_id) ||
-                                        treatmentsConfig.getByName(it.item_name);
-                                    return {
-                                        product_id: it.product_id,
-                                        item_name: it.item_name,
-                                        category: it.category,
-                                        document:
-                                            tx && tx.document
-                                                ? {
-                                                      base: tx.document.base,
-                                                      expiryMonths:
-                                                          tx.document.expiryMonths,
-                                                  }
-                                                : null,
-                                    };
-                                });
-                                resolve({ found: true, items, raw: inv });
-                            } catch (e) {
-                                reject(
-                                    new Error(
-                                        "Resposta /invoices no vàlida: " + e.message,
-                                    ),
-                                );
-                            }
-                        } else if (res.status === 401 || res.status === 403) {
-                            apiKey.clear();
-                            reject(new Error("API key invàlida — s'ha esborrat"));
-                        } else {
-                            reject(
-                                new Error(
-                                    `HTTP ${res.status}: ${res.statusText}`,
-                                ),
-                            );
-                        }
-                    },
-                    onerror: () => reject(new Error("Error de xarxa")),
+            let res;
+            try {
+                res = await fetchPabau(url);
+            } catch (err) {
+                throw new Error("Error de xarxa o CORS: " + err.message);
+            }
+
+            if (res.status === 200) {
+                let data;
+                try {
+                    data = await res.json();
+                } catch (e) {
+                    throw new Error(
+                        "Resposta /invoices no vàlida: " + e.message,
+                    );
+                }
+                const list = data.invoices || [];
+                if (list.length === 0) {
+                    return { found: false, items: [], raw: data };
+                }
+                const inv = list[0];
+                const rawItems = Array.isArray(inv.items) ? inv.items : [];
+                const items = rawItems.map((it) => {
+                    const tx =
+                        treatmentsConfig.getById(it.product_id) ||
+                        treatmentsConfig.getByName(it.item_name);
+                    return {
+                        product_id: it.product_id,
+                        item_name: it.item_name,
+                        category: it.category,
+                        document:
+                            tx && tx.document
+                                ? {
+                                      base: tx.document.base,
+                                      expiryMonths:
+                                          tx.document.expiryMonths,
+                                  }
+                                : null,
+                    };
                 });
-            });
+                return { found: true, items, raw: inv };
+            } else if (res.status === 401 || res.status === 403) {
+                apiKey.clear();
+                throw new Error("API key invàlida — s'ha esborrat");
+            } else {
+                throw new Error(`HTTP ${res.status}: ${res.statusText || ""}`);
+            }
         }
 
         return { getByInvoiceNo };
@@ -1562,7 +1630,7 @@
         const initialClientId = location.pathname.match(/^\/clients\/(\d+)\//);
         const handlerLabel = IS_USERScripts
             ? "Userscripts (iOS Safari)"
-            : (typeof GM_info !== "undefined" && GM_info.scriptHandler) || "Tampermonkey";
+            : "Userscript";
         console.log(
             `%c[Pabau LOPD] Actiu a ${location.pathname}${
                 initialClientId ? ` (client ${initialClientId[1]})` : ""
