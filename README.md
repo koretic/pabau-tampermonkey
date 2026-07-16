@@ -6,7 +6,7 @@ Col·lecció d'scripts de Tampermonkey per a Pabau CRM.
 
 ### `TamperMonkey_documentacion_script_3.js` ✅ (recomanat)
 
-Versió actual (`2026-07-12`). Comprova que una factura tingui **tots els
+Versió actual (`2026-07-16`). Comprova que una factura tingui **tots els
 papers signats necessaris** — el LOPD general **i** el consentiment
 informat (CI) de **cada tractament** de la factura — i bloqueja el
 botó **"Guardar cambios"** quan en falta algun o algun ha caducat.
@@ -56,7 +56,7 @@ botó és modificat.
 | **Emmagatzematge (Tampermonkey)** | Clau API xifrada per l'extensió (`GM_setValue`) |
 | **Emmagatzematge (Userscripts / iOS)** | `localStorage` de Safari, en text pla (no xifrada) |
 | **CORS (iOS / Userscripts)** | Sense credencials (`fetch` amb `credentials: "omit"`) |
-| **Versió** | `2026-07-12` |
+| **Versió** | `2026-07-16` |
 
 #### Instal·lació
 

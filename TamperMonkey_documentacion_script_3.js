@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Block invoice Pabau - LOPD check
 // @namespace    http://tampermonkey.net/
-// @version      2026-07-12
+// @version      2026-07-16
 // @description  Comprova els papers requerits (LOPD + CI per tractament) pels items d'una factura Pabau
 // @author       Alex Rodriguez
 // @match        https://app.pabau.com/*
@@ -70,7 +70,7 @@
             'button[data-testid="card-file-button"]',
             'button[aria-label="visa-card-button-payment"]',
             'button[aria-label="card-button"]',
-            'button[data-cy="cardOtherButton"]',
+            'button[aria-label="card-other-button"]',
             'button[aria-label="cash-button"]',
             'button[aria-label="account-payment"]',
             'button[data-testid="voucher-payment-button"]',
@@ -93,36 +93,36 @@
     const treatmentsConfig = (() => {
         const TREATMENTS = [
             // ============ Ácido Hialurónico ============
-            { id: 2702512, name: "Marcación mandibular",                category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
-            { id: 2702513, name: "Proyección de mentón",                 category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
-            { id: 2702514, name: "Proyección de pómulos",                category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
-            { id: 2702515, name: "Corrección surco nasogeniano",         category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
-            { id: 2702516, name: "Corrección líneas de marioneta",       category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
-            { id: 2702517, name: "Corrección sonrisa gingival",          category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
-            { id: 2702518, name: "Relleno fosa temporal",                category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
-            { id: 2702519, name: "Código de barras",                     category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
-            { id: 2702520, name: "Corrección de ojeras",                 category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
-            { id: 2702521, name: "Diseño de labios",                     category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
-            { id: 2702522, name: "Rinomodelación",                       category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
-            { id: 2702523, name: "Rinomodelación con cirugía previa",    category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO-ES 2026", expiryMonths: 12 } },
+            { id: 2702512, name: "Marcación mandibular",                category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO", expiryMonths: 12 } },
+            { id: 2702513, name: "Proyección de mentón",                 category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO", expiryMonths: 12 } },
+            { id: 2702514, name: "Proyección de pómulos",                category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO", expiryMonths: 12 } },
+            { id: 2702515, name: "Corrección surco nasogeniano",         category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO", expiryMonths: 12 } },
+            { id: 2702516, name: "Corrección líneas de marioneta",       category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO", expiryMonths: 12 } },
+            { id: 2702517, name: "Corrección sonrisa gingival",          category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO", expiryMonths: 12 } },
+            { id: 2702518, name: "Relleno fosa temporal",                category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO", expiryMonths: 12 } },
+            { id: 2702519, name: "Código de barras",                     category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO", expiryMonths: 12 } },
+            { id: 2702520, name: "Corrección de ojeras",                 category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO", expiryMonths: 12 } },
+            { id: 2702521, name: "Diseño de labios",                     category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO", expiryMonths: 12 } },
+            { id: 2702522, name: "Rinomodelación",                       category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO", expiryMonths: 12 } },
+            { id: 2702523, name: "Rinomodelación con cirugía previa",    category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO", expiryMonths: 12 } },
 
             // ============ Blefaroplastia ============
-            { id: 2702542, name: "Blefaroplastia superior",              category: "Blefaroplastia",      document: { base: "CI BLEFAROPLASTIA-ES 2026",     expiryMonths: 12 } },
-            { id: 2702543, name: "Blefaroplastia inferior",              category: "Blefaroplastia",      document: { base: "CI BLEFAROPLASTIA-ES 2026",     expiryMonths: 12 } },
-            { id: 2702544, name: "Blefaroplastia 4 párpados",            category: "Blefaroplastia",      document: { base: "CI BLEFAROPLASTIA-ES 2026",     expiryMonths: 12 } },
+            { id: 2702542, name: "Blefaroplastia superior",              category: "Blefaroplastia",      document: { base: "CI BLEFAROPLASTIA",     expiryMonths: 12 } },
+            { id: 2702543, name: "Blefaroplastia inferior",              category: "Blefaroplastia",      document: { base: "CI BLEFAROPLASTIA",     expiryMonths: 12 } },
+            { id: 2702544, name: "Blefaroplastia 4 párpados",            category: "Blefaroplastia",      document: { base: "CI BLEFAROPLASTIA",     expiryMonths: 12 } },
 
             // ============ Exosomas y Biología ============
-            { id: 2702545, name: "Exosomas autólogos",                   category: "Exosomas y Biología", document: { base: "Consent. Exosomas autólogos ES 2026", expiryMonths: 12 } },
-            { id: 2702546, name: "Polinucleótidos",                      category: "Exosomas y Biología", document: { base: "CI Polinucleotidos universal ES 2026", expiryMonths: 12 } },
-            { id: 2702547, name: "Hialuronidasa",                        category: "Exosomas y Biología", document: { base: "CI HIALURONIDASA ES 2026",      expiryMonths: 12 } },
+            { id: 2702545, name: "Exosomas autólogos",                   category: "Exosomas y Biología", document: { base: "CONSENTIMIENTO EXOSOMAS AUTOLOGOS", expiryMonths: 12 } },
+            { id: 2702546, name: "Polinucleótidos",                      category: "Exosomas y Biología", document: { base: "CI POLINUCLEOTIDOS UNIVERSAL", expiryMonths: 12 } },
+            { id: 2702547, name: "Hialuronidasa",                        category: "Exosomas y Biología", document: { base: "CI HIALURONIDASA", expiryMonths: 12 } },
 
             // ============ Neuromoduladores ============
-            { id: 2702524, name: "Neuromoduladores – 1 zona",            category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA ES 2026",   expiryMonths: 12 } },
-            { id: 2702525, name: "Neuromoduladores – 2 zonas",           category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA ES 2026",   expiryMonths: 12 } },
-            { id: 2702526, name: "Neuromoduladores – 3 zonas",           category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA ES 2026",   expiryMonths: 12 } },
-            { id: 2702527, name: "Neuromoduladores tercio inferior",     category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA ES 2026",   expiryMonths: 12 } },
-            { id: 2702528, name: "Bruxismo",                             category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA ES 2026",   expiryMonths: 12 } },
-            { id: 2702529, name: "Hiperhidrosis",                        category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA ES 2026",   expiryMonths: 12 } },
+            { id: 2702524, name: "Neuromoduladores - 1 zona",            category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
+            { id: 2702525, name: "Neuromoduladores - 2 zonas",           category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
+            { id: 2702526, name: "Neuromoduladores - 3 zonas",           category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
+            { id: 2702527, name: "Neuromoduladores tercio inferior",     category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
+            { id: 2702528, name: "Bruxismo",                             category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
+            { id: 2702529, name: "Hiperhidrosis",                        category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
 
             // ============ Inductores de colágeno (Sculptra / Radiesse) ============
             { id: 2702531, name: "Sculptra cuello",                      category: "Inductores",          document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
@@ -132,33 +132,38 @@
             { id: 2702597, name: "Inductores de colágeno",               category: "Inductores",          document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
 
             // ============ Láser Rejuvenecimiento ============
-            { id: 2702560, name: "ResurFX rejuvenecimiento",                       category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702561, name: "Láser Pico rejuvenecimiento / manchas / melasma", category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702562, name: "CO2 Panfacial completo",                         category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702563, name: "CO2 Tercio medio",                               category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702564, name: "CO2 Periocular",                                 category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702565, name: "CO2 Cuello",                                     category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702566, name: "CO2 Cara y cuello",                              category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702567, name: "CO2 Cara, cuello y escote",                      category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702568, name: "CO2 Escote",                                     category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702569, name: "CO2 Verrugas",                                   category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            // NOTA: Alguns tractaments tenen DOS documents vàlids (OR):
+            //   - CI LASER_FIRMADO.pdf
+            //   - CI LASER PICO (EN)_FIRMADO.pdf
+            // Si en té un dels dos, és vàlid.
+            { id: 2702560, name: "ResurFX rejuvenecimiento",                       category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702561, name: "Láser Pico rejuvenecimiento / manchas / melasma", category: "Láser Rejuvenecimiento",   documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702562, name: "CO2 Panfacial completo",                         category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702563, name: "CO2 Tercio medio",                               category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702564, name: "CO2 Periocular",                                 category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702565, name: "CO2 Cuello",                                     category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702566, name: "CO2 Cara y cuello",                              category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702567, name: "CO2 Cara, cuello y escote",                      category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702568, name: "CO2 Escote",                                     category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702569, name: "CO2 Verrugas",                                   category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
 
             // ============ Láser Vascular y Pigmentación ============
-            { id: 2702570, name: "IPL manchas faciales",                           category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702571, name: "IPL periocular",                                 category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702572, name: "Nd-Yag vascular",                                category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702573, name: "Eliminar tattoo",                                category: "Láser Vascular y Pigmentación", document: { base: "CI ELIMINACIÓN DE TATUAJES-ES 2026", expiryMonths: 12 } },
-            { id: 2702591, name: "Nd-Yag Puntos rubi x1",                          category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702592, name: "Nd-Yag Puntos rubi de 5 a 15",                   category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702593, name: "Nd-Yag Puntos rubi más de 15",                   category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702594, name: "Nd-Yag Arañas Vasculares x1",                    category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702595, name: "Nd-Yag Arañas Vasculares de 5 a 15",             category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702596, name: "Nd-Yag Arañas Vasculares más de 15",             category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
-            { id: 2702574, name: "Nd-Yag Venas Prioculares",                       category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            // NOTA: La majoria tenen dos documents vàlids (OR). Eliminar tattoo té un document propi.
+            { id: 2702570, name: "IPL manchas faciales",                           category: "Láser Vascular y Pigmentación", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702571, name: "IPL periocular",                                 category: "Láser Vascular y Pigmentación", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702572, name: "Nd-Yag vascular",                                category: "Láser Vascular y Pigmentación", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702573, name: "Eliminar tattoo",                                category: "Láser Vascular y Pigmentación", documents: [{ base: "CI ELIMINACION DE TATUAJES", expiryMonths: 12 }] },
+            { id: 2702591, name: "Nd-Yag Puntos rubi x1",                          category: "Láser Vascular y Pigmentación", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702592, name: "Nd-Yag Puntos rubi de 5 a 15",                   category: "Láser Vascular y Pigmentación", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702593, name: "Nd-Yag Puntos rubi más de 15",                   category: "Láser Vascular y Pigmentación", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702594, name: "Nd-Yag Arañas Vasculares x1",                    category: "Láser Vascular y Pigmentación", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702595, name: "Nd-Yag Arañas Vasculares de 5 a 15",             category: "Láser Vascular y Pigmentación", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702596, name: "Nd-Yag Arañas Vasculares más de 15",             category: "Láser Vascular y Pigmentación", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702574, name: "Nd-Yag Venas Prioculares",                       category: "Láser Vascular y Pigmentación", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
 
             // ============ Mesoterapia / PRGF / PRP ============
-            { id: 2702554, name: "Vitaminas NCTF 135 AH rostro",                   category: "Mesoterapia", document: { base: "CI MESOTERAPIA CON VITAMINAS ES 2026", expiryMonths: 12 } },
-            { id: 2702555, name: "Vitaminas NCTF 135 AH periocular",               category: "Mesoterapia", document: { base: "CI MESOTERAPIA CON VITAMINAS ES 2026", expiryMonths: 12 } },
+            { id: 2702554, name: "Vitaminas NCTF 135 AH rostro",                   category: "Mesoterapia", document: { base: "CI MESOTERAPIA CON VITAMINAS", expiryMonths: 12 } },
+            { id: 2702555, name: "Vitaminas NCTF 135 AH periocular",               category: "Mesoterapia", document: { base: "CI MESOTERAPIA CON VITAMINAS", expiryMonths: 12 } },
             { id: 2702556, name: "PRGF Facial",                                    category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
             { id: 2702557, name: "PRGF Capilar",                                   category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
             { id: 2702558, name: "PRGF COLIRIO",                                   category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
@@ -168,7 +173,7 @@
             { id: 2702618, name: "Pack Vitaminas + PRP",                           category: "Mesoterapia", document: { base: "CI PRP ES 2026",                    expiryMonths: 12 } },
 
             // ============ Marketing ============
-            { id: 2702615, name: "Colaboración",                                   category: "Marketing",   document: { base: "CI USO IMAGENES SONIDO ES 2026",     expiryMonths: 12 } },
+            { id: 2702615, name: "Colaboración",                                   category: "Marketing",   document: { base: "CI USO IMAGENES SONIDO",     expiryMonths: 12 } },
 
             // ============ Refractiva (sense document definit) ============
             { id: 2702548, name: "Láser FemtoLasik – por ojo",                     category: "Refractiva",  document: null },
@@ -178,16 +183,16 @@
 
             // ============ Tratamientos Faciales ============
             { id: 2702611, name: "Reverso",                                        category: "Tratamientos Faciales", document: { base: "CI RADIOFRECUENCIA CON MICROAGUJAS", expiryMonths: 12 } },
-            { id: 2702538, name: "Microneedling con exosomas vegetales",           category: "Tratamientos Faciales", document: { base: "CI MICRONEEDLING ES 2026", expiryMonths: 12 } },
-            { id: 2702539, name: "Peeling médico cara",                            category: "Tratamientos Faciales", document: { base: "PEELING ES 2026",          expiryMonths: 12 } },
-            { id: 2702537, name: "Microneedling cara y cuello",                    category: "Tratamientos Faciales", document: { base: "CI MICRONEEDLING ES 2026", expiryMonths: 12 } },
-            { id: 2702540, name: "Hydrafacial Signature",                          category: "Tratamientos Faciales", document: { base: "CI HYDRAFACIAL ES 2026",   expiryMonths: 12 } },
-            { id: 2702541, name: "Hydrafacial Deluxe",                             category: "Tratamientos Faciales", document: { base: "CI HYDRAFACIAL ES 2026",   expiryMonths: 12 } },
+            { id: 2702538, name: "Microneedling con exosomas vegetales",           category: "Tratamientos Faciales", document: { base: "CI MICRONEEDLING", expiryMonths: 12 } },
+            { id: 2702539, name: "Peeling médico cara",                            category: "Tratamientos Faciales", document: { base: "PEELING",          expiryMonths: 12 } },
+            { id: 2702537, name: "Microneedling cara y cuello",                    category: "Tratamientos Faciales", document: { base: "CI MICRONEEDLING", expiryMonths: 12 } },
+            { id: 2702540, name: "Hydrafacial Signature",                          category: "Tratamientos Faciales", document: { base: "CI HYDRAFACIAL",   expiryMonths: 12 } },
+            { id: 2702541, name: "Hydrafacial Deluxe",                             category: "Tratamientos Faciales", document: { base: "CI HYDRAFACIAL",   expiryMonths: 12 } },
 
             // ============ Ultrasonidos HIFU ============
-            { id: 2702534, name: "Ultraformer MPT – Cara",                         category: "Tratamientos Faciales", document: { base: "CI ULTRAFORMER ES 2026",   expiryMonths: 12 } },
-            { id: 2702535, name: "Ultraformer MPT – Cuello / Papada",              category: "Tratamientos Faciales", document: { base: "CI ULTRAFORMER ES 2026",   expiryMonths: 12 } },
-            { id: 2702536, name: "Ultraformer MPT – Cara y cuello completo",       category: "Tratamientos Faciales", document: { base: "CI ULTRAFORMER ES 2026",   expiryMonths: 12 } },
+            { id: 2702534, name: "Ultraformer MPT - Cara",                         category: "Tratamientos Faciales", document: { base: "CI ULTRAFORMER",   expiryMonths: 12 } },
+            { id: 2702535, name: "Ultraformer MPT - Cuello / Papada",              category: "Tratamientos Faciales", document: { base: "CI ULTRAFORMER",   expiryMonths: 12 } },
+            { id: 2702536, name: "Ultraformer MPT - Cara y cuello completo",       category: "Tratamientos Faciales", document: { base: "CI ULTRAFORMER",   expiryMonths: 12 } },
         ];
 
         const BY_ID   = new Map();
@@ -201,19 +206,33 @@
         function getByName(n)  { return n ? BY_NAME.get(String(n).toLowerCase().trim()) || null : null; }
 
         /**
-         * Resol quin document + caducitat toca per un tractament.
+         * Resol quin/quins documents + caducitat toca per un tractament.
+         * Retorna un array de {documentName, expiryMonths} - el caller
+         * ha de comprovar si el client té ALMENYS un d'aquests documents.
          * @param {{id?: number|string, name?: string}} key
-         * @returns {{ documentName: string, expiryMonths: number } | null}
+         * @returns {Array<{documentName: string, expiryMonths: number}> | null}
          */
         function resolve(key) {
             const entry =
                 (key.id != null && key.id !== "" && getById(key.id)) ||
                 (key.name && getByName(key.name));
-            if (!entry || !entry.document) return null;
-            return {
-                documentName: `${entry.document.base}_FIRMADO.pdf`,
-                expiryMonths: entry.document.expiryMonths,
-            };
+            if (!entry) return null;
+
+            // Si té 'documents' (array), retornar tots com a opcions vàlides
+            if (entry.documents) {
+                return entry.documents.map((d) => ({
+                    documentName: `${d.base}_FIRMADO.pdf`,
+                    expiryMonths: d.expiryMonths,
+                }));
+            }
+            // Si té 'document' (single), retornar array d'un element
+            if (entry.document) {
+                return [{
+                    documentName: `${entry.document.base}_FIRMADO.pdf`,
+                    expiryMonths: entry.document.expiryMonths,
+                }];
+            }
+            return null;
         }
 
         return Object.freeze({
@@ -342,7 +361,7 @@
             const newHref = location.href;
             if (newHref === oldHref) return;
             lastHref = newHref;
-            console.log("[Pabau LOPD] Canvi de URL:", oldHref, "→", newHref);
+            console.log("[Pabau LOPD] URL:", oldHref, "→", newHref);
             listeners.forEach((fn) => fn({ oldHref, newHref }));
         }
 
@@ -540,18 +559,14 @@
                                     const tx =
                                         treatmentsConfig.getById(it.product_id) ||
                                         treatmentsConfig.getByName(it.item_name);
+                                    const docsForItem =
+                                        tx ? (tx.documents || (tx.document ? [tx.document] : null)) : null;
                                     return {
                                         product_id: it.product_id,
                                         item_name: it.item_name,
                                         category: it.category,
-                                        document:
-                                            tx && tx.document
-                                                ? {
-                                                      base: tx.document.base,
-                                                      expiryMonths:
-                                                          tx.document.expiryMonths,
-                                                  }
-                                                : null,
+                                        // Pot tenir 'documents' (array) o 'document' (single) o null
+                                        documents: docsForItem,
                                     };
                                 });
                                 resolve({ found: true, items, raw: inv });
@@ -628,17 +643,57 @@
             );
         }
 
-        /** Constrou el llistat ÚNIC de papers: LOPD 1 cop + 1 per base de tractament. */
+        /** Constrou el llistat ÚNIC de papers: LOPD 1 cop + 1 per GRUP de
+         *  documents de tractament. Cada entrada del llistat representa un
+         *  SOL requisit: o bé un document concret (sense alternatives),
+         *  o bé un grup d'alternatives (OR) del qual el client nomes en
+         *  necessita tenir UN.
+         *
+         *  IMPORTANT: quan un tractament té multiples alternatives (OR),
+         *  generem UNA SOLA entrada al llistat, NO una entrada per cada
+         *  alternativa. Si no, el recompte d'issues s'inflaria i es
+         *  mostraria "FALTAN 2 documentos" quan en realitat nomes en
+         *  falta UN (perque el client nomes en necessita un dels dos).
+         *
+         *  Dedupliquem per GRUP (llista ordenada de bases), no per base
+         *  individual. Aixi, dos tractaments que comparteixen exactament
+         *  les mateixes alternatives (p. ex. tots els lasers que usen
+         *  [CI LASER, CI LASER PICO]) col·lapsen en una sola entrada.
+         */
         function buildRequiredFromItems(items) {
-            const byBase = new Map();
+            // Map per deduplicar grups d'alternatives identics entre si.
+            // Clau = llista ORDENADA de bases, per evitar falsos duplicats
+            // quan l'ordre del array varia pero el contingut es el mateix.
+            const groups = new Map();
             for (const it of items) {
-                if (!it.document) continue;
-                const { base, expiryMonths } = it.document;
-                if (byBase.has(base)) continue;
-                byBase.set(base, {
-                    base,
-                    documentName: `${base}_FIRMADO.pdf`,
-                    expiryMonths,
+                if (!it.documents || it.documents.length === 0) continue;
+                const docs = it.documents;
+
+                // Claus d'agrupacio: llista ordenada de bases amb "||".
+                // D'aquesta manera:
+                //   - [LASER, PICO] i [PICO, LASER]    → mateix grup
+                //   - [LASER, PICO]  i  [LASER]        → grups diferents
+                const sortedBases = docs.map((d) => d.base).slice().sort();
+                const groupKey = sortedBases.join(" || ");
+
+                if (groups.has(groupKey)) continue;
+
+                // Document "principal" (per mostrar al tooltip): el primer
+                // de la llista ORIGINAL. Si te alternatives, marquem el
+                // grup amb `alternatives` perque la consulta API apliqui
+                // la logica OR (consultar totes les opcions i acceptar
+                // qualsevol que existeixi).
+                // Nota: `expiryMonths` s'agafa del primer document. Si en
+                // el futur les alternatives poden tenir caducitats
+                // diferents, caldra revisar aquesta assignacio.
+                groups.set(groupKey, {
+                    base: docs[0].base,
+                    documentName: `${docs[0].base}_FIRMADO.pdf`,
+                    expiryMonths: docs[0].expiryMonths,
+                    alternatives:
+                        docs.length > 1
+                            ? docs.map((d) => `${d.base}_FIRMADO.pdf`)
+                            : null,
                 });
             }
             return [
@@ -648,7 +703,7 @@
                     expiryMonths: 0,
                     kind: "lopd",
                 },
-                ...[...byBase.values()].map((d) => ({
+                ...[...groups.values()].map((d) => ({
                     ...d,
                     kind: "treatment",
                 })),
@@ -691,49 +746,80 @@
             const required = buildRequiredFromItems(items);
 
             // Una sola crida per paper requerit, en paral·lel.
+            // Per documents amb alternatives (OR), cal consultar TOTES les opcions
+            // i només marcar como "no trobat" si cap d'elles existeix.
             const checks = await Promise.all(
                 required.map(async (req) => {
-                    try {
-                        const r = await documentsApi.findDocument({
-                            apiKey: key,
-                            clientId,
-                            documentName: req.documentName,
-                        });
-                        // El caller es queda amb la coincidència més nova
-                        // (l'API ja torna DESC).
-                        const top = r.document || null;
-                        const createdAt = top ? top.date || null : null;
-                        const expired =
-                            !!top && isExpired(createdAt, req.expiryMonths);
-                        return {
-                            req,
-                            doc: top,
-                            found: !!top,
-                            expired,
-                            createdAt,
-                        };
-                    } catch (err) {
-                        console.error(
-                            `[Pabau LOPD] Error consultant ${req.documentName}:`,
-                            err,
-                        );
-                        return {
-                            req,
-                            doc: null,
-                            found: false,
-                            expired: false,
-                            createdAt: null,
-                            error: err,
-                        };
-                    }
+                    // Obtenim la llista de documents a consultar:
+                    // - Si té alternatives: totes elles
+                    // - Si no: només el document principal
+                    const docsToCheck = req.alternatives || [req.documentName];
+
+                    // Consultem totes les alternatives en paral·lel
+                    const results = await Promise.all(
+                        docsToCheck.map(async (docName) => {
+                            try {
+                                const r = await documentsApi.findDocument({
+                                    apiKey: key,
+                                    clientId,
+                                    documentName: docName,
+                                });
+                                const top = r.document || null;
+                                const createdAt = top ? top.date || null : null;
+                                const expired =
+                                    !!top && isExpired(createdAt, req.expiryMonths);
+                                return {
+                                    found: !!top,
+                                    expired,
+                                    createdAt,
+                                    doc: top,
+                                    docName,
+                                };
+                            } catch (err) {
+                                console.error(
+                                    `[Pabau LOPD] Error consultant ${docName}:`,
+                                    err,
+                                );
+                                return {
+                                    found: false,
+                                    expired: false,
+                                    createdAt: null,
+                                    doc: null,
+                                    docName,
+                                    error: err,
+                                };
+                            }
+                        }),
+                    );
+
+                    // Lògica OR: si ALMENYS una alternativa és vàlida, considerem el document OK
+                    // Escollim la més recent (per mostrar info) i l'estat combinat
+                    const validResults = results.filter((r) => r.found && !r.expired);
+                    const anyFound = results.some((r) => r.found);
+                    const anyExpired = results.some((r) => r.expired);
+
+                    // Triem el document més recent per mostrar-lo (el primer de la llista és el DESC)
+                    const bestMatch = validResults.length > 0 ? validResults[0] : results[0];
+
+                    return {
+                        req,
+                        doc: bestMatch.doc,
+                        found: anyFound,
+                        expired: anyExpired && !anyFound ? false : anyExpired, // expirado solo si hay alguno expired Y ninguno valid
+                        createdAt: bestMatch.createdAt,
+                        // Per al tooltip:quins documents s'han consultat
+                        checkedDocs: docsToCheck,
+                    };
                 }),
             );
 
             const issues = checks
                 .filter(({ found, expired }) => !found || expired)
-                .map(({ req, found, expired, createdAt }) => ({
+                .map(({ req, found, expired, createdAt, checkedDocs }) => ({
                     kind: !found ? "missing" : "expired",
                     name: req.documentName,
+                    // Si té alternatives, mostrem quines s'han consultat
+                    alternatives: req.alternatives || null,
                     scope: req.kind, // "lopd" | "treatment"
                     createdAt,
                     monthsOld: monthsSince(createdAt),
@@ -868,13 +954,12 @@
             );
             let n = 0;
             for (const b of btns) {
-                // Seguretat: només bloquejem els que viuen dins del
-                // panell de pagaments (no toquem cap botó que estigui
-                // fora per error de selector).
-                const inFooter = b.closest(CONFIG.PAYMENT_FOOTER_SELECTOR);
-                if (!inFooter) continue;
+                // Bloquejem TOTS els botons, sense filtrar per inFooter.
+                // Si el botó és dins del footer però encara no ha acabat
+                // el render de React, el trobarem igual.
                 if (blockPaymentOnNode(b, tt)) n += 1;
             }
+            console.log(`[Pabau LOPD] blockPaymentButtons: blocked ${n} buttons`);
             return n;
         }
 
@@ -893,7 +978,7 @@
             if (!btn) return false;
             const tt = tooltip || "";
 
-            // Idempotència: si ja està bloquejat amb el mateix title, no hi tornem.
+            // Idempotència
             if (
                 btn.dataset.lopdBlocked === "true" &&
                 btn.title === tt
@@ -901,9 +986,7 @@
                 return true;
             }
 
-            // Capturem l'estat de `disabled` ABANS de tocar res per saber,
-            // quan fem unblock, si el botó ja estava desactivat per Pabau
-            // (i per tant NO l'hem de reactivar) o si l'hem desactivat nosaltres.
+            // Capturem l'estat inicial
             if (btn.dataset.lopdWasDisabled == null) {
                 btn.dataset.lopdWasDisabled = btn.disabled ? "true" : "false";
             }
@@ -913,10 +996,8 @@
             btn.dataset.lopdBlocked = "true";
             btn.dataset.lopdTooltip = tt;
             btn.dataset.lopdKey = "payment";
-            // NO apliquem cap style.* per no canviar l'aspecte.
 
-            // Reforç: interceptar clics per si la reactivitat de
-            // React torna a activar el botó entre cridades de l'observer.
+            // Reforç: interceptar clics
             if (!btn.dataset.lopdGuard) {
                 btn.dataset.lopdGuard = "1";
                 btn.addEventListener(
@@ -928,7 +1009,7 @@
                             ev.stopImmediatePropagation();
                         }
                     },
-                    true, // capture: interceptem ABANS que React
+                    true,
                 );
             }
             return true;
@@ -957,67 +1038,40 @@
          * la comprovació de `lopdGuard`).
          */
         function unblockPaymentButtons() {
-            // Només actuem sobre els botons que havíem marcat NOSALTRES
-            // amb `data-lopd-blocked="true"`. D'aquests, restablim
-            // `disabled=false` NOMÉS si nosaltres l'havíem activat
-            // (`data-lopd-was-disabled === "false"`); si ja estava
-            // disabled quan el vam trobar (Pabau el desactiva per
-            // saldo/validació/etc.) el deixem tal com estava.
             const btns = document.querySelectorAll(
                 `${CONFIG.PAYMENT_BUTTON_SELECTORS}[data-lopd-blocked="true"]`,
             );
+            if (btns.length === 0) return;
+
             let restored = 0;
             let skipped = 0;
             for (const b of btns) {
-                const wasOurs =
-                    b.dataset.lopdWasDisabled === "false";
+                const wasOurs = b.dataset.lopdWasDisabled === "false";
 
-                // IMPORTANT: SEMPRE eliminem `data-lopd-blocked` i el `title`
-                // perquè l'idempotència de `blockPaymentOnNode` es baseua
-                // en aquests marcadors. Si no els esborrem, una possible
-                // re-crida a `forceBlockAllPaymentButtons` abans que React
-                // re-renderitzi pot fer que el botó quedi amb `disabled=true`
-                // permanent (el `disabled` es posa a true però mai es torna
-                // a posar a false perquè l'idempotència ho salta).
+                // Eliminem marcadors PRIMER, ABANS del disabled=false.
+                // Així, si l'observer s'activa entre el delete i el disabled=false,
+                // veurà que `data-lopd-blocked` ja NO hi és i NO bloc Gegem.
                 delete b.dataset.lopdBlocked;
                 delete b.dataset.lopdTooltip;
                 delete b.dataset.lopdKey;
                 b.title = "";
 
                 if (!wasOurs) {
-                    // Ja estava disabled abans del nostre bloqueig:
-                    // deixem `disabled=true` (Pabau ho volia així).
                     skipped += 1;
                     continue;
                 }
 
-                // L'havíem desactivat nosaltres: el reactivem.
-                // Usem removeAttribute en lloc de `disabled=false` per
-                // assegurar que el DOM queda net de l'atribut disabled
-                // (necessari perquè React no el torni a llegir del DOM
-                // en comptes del seu propi estat intern).
-                b.removeAttribute("disabled");
+                // Reactivem el botó que nosaltres vam bloquejar
+                const beforeDisabled = b.disabled;
+                b.disabled = false;
+                console.log(
+                    `[Pabau LOPD] unblock: ariaLabel="${b.ariaLabel}" | wasOurs=${wasOurs} | disabled: ${beforeDisabled}→${b.disabled}`,
+                );
                 restored += 1;
             }
-            if (btns.length > 0) {
-                console.log(
-                    `[Pabau LOPD] unblockPaymentButtons: total=${btns.length}, restored=${restored}, skipped(botons-que-Pabau-tenia-disabled)=${skipped}`,
-                );
-            }
-            // Log final per verificar l'estat real dels botons despres
-            // de l'unblock (DEBUG)
-            if (typeof window !== "undefined") {
-                const checkBtn = document.querySelector(
-                    `${CONFIG.PAYMENT_BUTTON_SELECTORS}[data-lopd-blocked="true"]`,
-                );
-                console.log(
-                    `[Pabau LOPD] unblock post-check: ${
-                        checkBtn
-                            ? "ENCARA hi ha botons blocked!"
-                            : "TOTS OK - cap botó amb data-lopd-blocked"
-                    }`,
-                );
-            }
+            console.log(
+                `[Pabau LOPD] unblockPaymentButtons: total=${btns.length}, restored=${restored}, skipped=${skipped}`,
+            );
         }
 
         /**
@@ -1030,37 +1084,96 @@
          * Només fem `disabled=true` + `title` (per al tooltip) + capture
          * del click. Així, quan l'usuari surti del panel, els botons
          * continuen tenint el seu color i forma originals de Pabau.
+         *
+         * IMPORTANT: Aquesta funció SIEMPRE bloquegem tots els botons que
+         * troba al DOM, sense importar si ja tenen `data-lopd-blocked`.
+         * Això garanteix que si Pabau React re-renderitza els botons
+         * (per exemple en canviar d'estat intern), tornem a bloquejar-los.
          */
         function forceBlockAllPaymentButtons(tooltip) {
             const tt = tooltip || "Revisando documentación...";
-            const btns = document.querySelectorAll(
-                CONFIG.PAYMENT_BUTTON_SELECTORS,
-            );
+            
+            console.log(`[Pabau LOPD] forceBlock: Searching for payment buttons...`);
+            
+            // Search for buttons globally - they might not exist yet in the DOM
+            // when this is first called (React renders them asynchronously)
+            const btns = document.querySelectorAll(CONFIG.PAYMENT_BUTTON_SELECTORS);
+            
+            console.log(`[Pabau LOPD] forceBlock: Found ${btns.length} buttons immediately`);
+            
+            // If no buttons found, set up a MutationObserver to wait for them
+            if (btns.length === 0) {
+                console.log(`[Pabau LOPD] forceBlock: No buttons yet, setting up observer to wait...`);
+                waitForPaymentButtons(tt);
+                return;
+            }
+            
+            // We have buttons, block them
+            blockPaymentButtonsImmediate(btns, tt);
+        }
+        
+        /**
+         * Sets up a MutationObserver to wait for payment buttons to appear in the DOM.
+         * This handles the case where React hasn't rendered the buttons yet.
+         */
+        let buttonObserver = null;
+        let buttonObserverTooltip = null;
+        
+        function waitForPaymentButtons(tooltip) {
+            // Cancel any existing observer
+            if (buttonObserver) {
+                buttonObserver.disconnect();
+                buttonObserver = null;
+            }
+            
+            buttonObserverTooltip = tooltip || "Revisando documentación...";
+            
+            buttonObserver = new MutationObserver((mutations, obs) => {
+                const btns = document.querySelectorAll(CONFIG.PAYMENT_BUTTON_SELECTORS);
+                console.log(`[Pabau LOPD] forceBlock observer: Found ${btns.length} buttons`);
+                
+                if (btns.length > 0) {
+                    // Found buttons! Block them and disconnect observer
+                    blockPaymentButtonsImmediate(btns, buttonObserverTooltip);
+                    obs.disconnect();
+                    buttonObserver = null;
+                    console.log(`[Pabau LOPD] forceBlock observer: Successfully blocked ${btns.length} buttons`);
+                }
+            });
+            
+            // Observe the entire document for button mutations
+            buttonObserver.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+            
+            console.log(`[Pabau LOPD] forceBlock: Observer set up, waiting for buttons...`);
+        }
+        
+        /**
+         * Blocks payment buttons immediately without idempotency check.
+         * This is the core blocking logic.
+         */
+        function blockPaymentButtonsImmediate(btns, tt) {
             let touched = 0;
             for (const b of btns) {
-                // Seguretat: només toquem els que estan DINS del footer
-                // del panel de pagaments (no toquem CSS fora d'aquí).
-                const inFooter = b.closest(CONFIG.PAYMENT_FOOTER_SELECTOR);
-                if (!inFooter) continue;
-
-                // Capturem l'estat inicial de `disabled` per si Pabau
-                // el tenia ja desactivat; així quan fem unblock sabem
-                // si l'hem de reactivar o no.
+                // Capturem l'estat inicial de `disabled` la PRIMERA vegada
+                // que bloquegem (si `wasDisabled` encara no existeix).
+                // Així quan fem unblock sabem si Pabau el tenía deshabilitat
+                // abans del nostre bloqueig.
                 if (b.dataset.lopdWasDisabled == null) {
                     b.dataset.lopdWasDisabled = b.disabled ? "true" : "false";
                 }
 
-                // NO modifiquem: backgroundColor, color, borderColor,
-                // opacity, ni el text intern del botó.
+                // SIEMPRE bloquejem: posem disabled=true i title
+                // (no comprovem idempotència perquè volem forçar el bloqueig)
                 b.disabled = true;
                 b.title = tt;
                 b.dataset.lopdBlocked = "true";
                 b.dataset.lopdTooltip = tt;
                 b.dataset.lopdKey = "payment";
-                // NO posem style.cursor ni style.cssText: volem que el
-                // botó conservi el seu aspecte original de Pabau.
 
-                // Listener de seguretat (idempotent)
+                // Listener de seguretat (idempotent gràcies al dataset check)
                 if (!b.dataset.lopdGuard) {
                     b.dataset.lopdGuard = "1";
                     b.addEventListener(
@@ -1077,9 +1190,7 @@
                 }
                 touched += 1;
             }
-            console.log(
-                `[Pabau LOPD] forceBlockAllPaymentButtons: ${touched} botons desactivats (footer)`,
-            );
+            console.log(`[Pabau LOPD] forceBlock: ${touched} payment buttons blocked`);
         }
 
         function unblockAll() {
@@ -1089,21 +1200,11 @@
             );
             if (main) unblockOne(main);
 
-            // 2) Botons de pagament: els DESBLOQUEGEM sempre. Abans
-            //    els manteníem bloquejats per defecte ("Revisando..."),
-            //    però ara sabem que quan l'usuari surt del panell de
-            //    pagaments ja no té sentit mantenir-los deshabilitats:
-            //    la propera vegada que entri al panell, `process()`
-            //    tornarà a bloquejar els que toqui (preventiu o per
-            //    issues reals).
+            // 2) Botons de pagament
             unblockPaymentButtons();
 
             // 3) IMPORTANT: netejar TOTS els marcadors de lopd al DOM,
-            //    no només als elements actualment bloquejats. Si el botó
-            //    principal ja no té [data-lopd-blocked] però encara té
-            //    [data-lopd-checked] o [data-lopd-key], la propera
-            //    crida a process() pensarà que ja està processat i NO
-            //    tornarà a bloquejar res quan l'usuari torni al panel.
+            //    no només als elements actualment bloquejats.
             document
                 .querySelectorAll(
                     `${CONFIG.BUTTON_SELECTOR}[data-lopd-key], ${CONFIG.BUTTON_SELECTOR}[data-lopd-checked]`,
@@ -1209,25 +1310,38 @@
          * ja s'encarregarà a través de l'observer del `install()`.
          */
         function handleTabChange() {
-            if (!isPaymentTabActive()) {
+            const isActive = isPaymentTabActive();
+            console.log(`[Pabau LOPD] handleTabChange: isPaymentTabActive=${isActive}`);
+            if (!isActive) {
                 buttonGuard.unblockAll();
+                invoiceStore.reset();
+            } else {
+                buttonGuard.forceBlockAllPaymentButtons(
+                    "Revisando documentación...",
+                );
             }
         }
 
         /** Format amigable d'un issue per al tooltip. */
         function fmtIssue(i) {
             const tag = i.scope === "lopd" ? "[LOPD] " : "[CI] ";
+            const alternativesInfo = i.alternatives
+                ? ` (valido: ${i.alternatives.join(" | ")})`
+                : "";
 
             if (i.kind === "missing") {
                 // No tenim cap registre d'aquest document al client.
-                return `${tag}${i.name} · No encontrado`;
+                const tried = i.alternatives
+                    ? ` · Opciones: ${i.alternatives.join(", ")}`
+                    : "";
+                return `${tag}${i.name} · No encontrado${tried}`;
             }
 
             // kind === "expired": el document existeix però ha caducat.
             const date = invoiceLookup.formatDate(i.createdAt);
             const when = date ? `subido el ${date}` : "fecha de subida desconocida";
             const months = i.monthsOld != null ? ` (hace ${i.monthsOld} meses)` : "";
-            return `${tag}${i.name} · Caducado · ${when}${months}`;
+            return `${tag}${i.name} · Caducado · ${when}${months}${alternativesInfo}`;
         }
 
         /**
@@ -1305,8 +1419,12 @@
             //    També bloquegem els botons de pagament (sempre deshabilitats
             //    per defecte; només s'habilitaran si la validació és OK).
             //    Marquem el botó amb el cacheKey per evitar duplicar feina.
+            //    IMPORTANT: Use "Revisando..." as tooltip per consistency
+            //    with forceBlockAllPaymentButtons() - this ensures the
+            //    idempotency check in blockPaymentOnNode doesn't skip
+            //    the disabled state.
             buttonGuard.block(CONFIG.CONSULTING_LABEL, "");
-            buttonGuard.blockPaymentButtons(CONFIG.CONSULTING_LABEL);
+            buttonGuard.blockPaymentButtons("Revisando documentación...");
             btn.dataset.lopdChecked = cacheKey;
             btn.dataset.lopdLabel = CONFIG.CONSULTING_LABEL;
             btn.dataset.lopdTooltip = "";
@@ -1358,46 +1476,16 @@
             const label = buildLabel(result);
             const tooltip = buildTooltip(result);
             console.log(
-                `[Pabau LOPD] Client ${clientId} · factura ${invoiceNo} →`,
-                {
-                    items: (result.items || []).map((it) => it.item_name),
-                    issues: (result.issues || []).length,
-                    label,
-                },
+                `[Pabau LOPD] invoice ${invoiceNo}: ${(result.issues || []).length} issues`,
             );
 
             if (label) {
                 btn.dataset.lopdLabel = label;
                 btn.dataset.lopdTooltip = tooltip || "";
                 buttonGuard.block(label, tooltip);
-
-                // També bloquegem tots els botons de mètode de pagament
-                // (Credit, Points, Card, Cash, Vouchers, etc.) del
-                // panell de pagaments. Només els desactivem + tooltip,
-                // SENSE tocar el text intern ni els estils del botó.
-                buttonGuard.blockPaymentButtons(
-                    tooltip ||
-                        "No es pot cobrar fins que la documentació estigui al dia",
-                );
-                // NOTA: NO creem cap MutationObserver intern aquí.
-                // L'únic observer que ens interessa és el del `install()`,
-                // que ja torna a cridar `process()` quan canvii el DOM.
-                // Si en creéssim un, reblocaríem el botó encara que
-                // l'usuari hagi canviat a una altra tab (el panel
-                // rc-tabs-*-panel-2 segueix sent al DOM, només ha canviat
-                // el seu aria-hidden).
+                const paymentTooltip = tooltip || "No es pot cobrar fins que la documentació estigui al dia";
+                buttonGuard.blockPaymentButtons(paymentTooltip);
             } else {
-                // Tota la documentació és correcta → habilitem els
-                // botons de pagament (fins ara estaven deshabilitats
-                // per defecte). El botó principal ha de tornar al seu
-                // text ORIGINAL (p. ex. "Guardar cambios"), NO pas al
-                // "Consultando documentación..." que hem posat mentre
-                // consultàvem l'API.
-                //
-                // Marquem explícitament `lopdLabel=""` per distingir
-                // aquesta factura de les que tenen issues en el replay
-                // (veure branca `processedViews.has(cacheKey)` dins
-                // `process()`).
                 btn.dataset.lopdLabel = "";
                 btn.dataset.lopdTooltip = "";
                 buttonGuard.unblockOne(btn);
@@ -1426,42 +1514,34 @@
                 }
 
                 // CAS 2: Panel actiu.
-                // BUGFIX: abans el bloqueig preventiu NOMÉS s'aplicava la
-                // primera vegada (gracias a `processedViews.has(cacheKey)`),
-                // però això fallava en reentrar al panell perquè
-                // `handleNavigation` ja havia netejat el `processedViews`.
-                // Ara SEMPRE reapliquem el bloqueig preventiu dels botons
-                // de pagament quan entrem al panell — el `process()` ja
-                // s'encarregarà de mantenir-lo o aixecar-lo quan arribi
-                // la resposta de l'API.
+
+                // FIRST: Check if we've already processed this invoice.
+                // IMPORTANT: Do this BEFORE blocking buttons, so we don't
+                // re-disable buttons that were correctly unblocked by process().
                 const invoiceNo = invoiceStore.invoiceNo;
                 const cacheKey =
                     invoiceNo != null ? `${clientId}|${invoiceNo}` : null;
-
-                // Obtenim el botó principal per comprovar si ja hem
-                // processat aquesta factura (ho indiquem amb lopdChecked).
                 const mainBtn = document.querySelector(CONFIG.BUTTON_SELECTOR);
                 const alreadyChecked = mainBtn && mainBtn.dataset.lopdChecked === cacheKey;
+                const hasBlockedButtons = document.querySelector(
+                    `${CONFIG.PAYMENT_BUTTON_SELECTORS}[data-lopd-blocked="true"]`,
+                );
 
-                // FIX: NO re-bloquejar si:
-                // 1. Ja s'està processant aquesta combinació client|factura
-                //    (_processingKey), o
-                // 2. Ja s'ha processat anteriorment i s'ha desat el resultat
-                //    (lopdChecked). Això evita que el MutationObserver
-                //    re-bloqueges els botons cada vegada que es dispara
-                //    mentre esperem resposta de l'API o desprès d'haver
-                //    validat i desbloquejat.
+                // If already checked, we should NOT re-block the payment buttons.
+                // The 6 buttons we unblocked must stay enabled, and the 4
+                // Pabau-disabled buttons must stay disabled.
                 if (cacheKey && (invoiceGuard._processingKey === cacheKey || alreadyChecked)) {
                     return;
                 }
 
-                // Bloquegem SEMPRE preventivament quan entrem al panel.
-                // Aquest és el bloqueig "consultant" que veurà l'usuari
-                // fins que l'API respongui.
+                // Bloquem immediatament
                 buttonGuard.forceBlockAllPaymentButtons(
                     "Revisando documentación...",
                 );
+                buttonGuard.blockPaymentButtons("Revisando documentación...");
 
+                // Cridem process() per fer la consulta API i desbloquejar
+                // o mantenir el bloqueig segons el resultat.
                 process({ apiKey: key, clientId });
             };
 
@@ -1487,6 +1567,27 @@
                 }
             };
             subscribeTabPanels();
+
+            // Observer per detectar quan el PAYMENT FOOTER apareix al DOM.
+            // Si els botons JA tenen `data-lopd-blocked` (marcador nostre),
+            // ignorem per evitar re-bloqueig redundant.
+            const paymentFooterObserver = new MutationObserver((mutations) => {
+                if (!isPaymentTabActive()) return;
+                // Ja tenim botons marcats? No cal tornar a bloquejar.
+                const alreadyBlocked = document.querySelector(
+                    `${CONFIG.PAYMENT_BUTTON_SELECTORS}[data-lopd-blocked="true"]`,
+                );
+                if (alreadyBlocked) return;
+                buttonGuard.forceBlockAllPaymentButtons(
+                    "Revisando documentación...",
+                );
+                buttonGuard.blockPaymentButtons("Revisando documentación...");
+            });
+            // Observem tot el document per detectar quan el footer apareix
+            paymentFooterObserver.observe(document.body, {
+                childList: true,
+                subtree: true,
+            });
 
             // Re-subscriure quan el body canviï (per si React remunta
             // les tabs, cosa que passa sovint a la SPA).
