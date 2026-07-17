@@ -1,9 +1,12 @@
 // ==UserScript==
 // @name         Block invoice Pabau - LOPD check
 // @namespace    http://tampermonkey.net/
-// @version      2026-07-16
+// @version      1.0
 // @description  Comprova els papers requerits (LOPD + CI per tractament) pels items d'una factura Pabau
 // @author       Alex Rodriguez
+// @homepageURL  https://github.com/koretic/pabau-tampermonkey
+// @downloadURL  https://raw.githubusercontent.com/koretic/pabau-tampermonkey/main/TamperMonkey_documentacion_script_3.js
+// @updateURL    https://raw.githubusercontent.com/koretic/pabau-tampermonkey/main/TamperMonkey_documentacion_script_3.js
 // @match        https://app.pabau.com/*
 // @match        https://app.pabau.com/clients/*/financial*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=pabau.com
