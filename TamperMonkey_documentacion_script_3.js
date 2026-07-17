@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Block invoice Pabau - LOPD check
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.0.1
 // @description  Comprova els papers requerits (LOPD + CI per tractament) pels items d'una factura Pabau
 // @author       Alex Rodriguez
 // @homepageURL  https://github.com/koretic/pabau-tampermonkey
@@ -1644,7 +1644,7 @@
         invoiceGuard.install({ apiKey: key });
         const initialClientId = location.pathname.match(/^\/clients\/(\d+)\//);
         console.log(
-            `%c[Pabau LOPD] Actiu a ${location.pathname}${
+            `%c[Pabau LOPD] v${GM_info.script.version} · ${location.pathname}${
                 initialClientId ? ` (client ${initialClientId[1]})` : ""
             }`,
             "background:#28a745;color:#fff;padding:2px 6px;border-radius:3px;",
