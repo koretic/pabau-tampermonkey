@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Block invoice Pabau - LOPD check
 // @namespace    http://tampermonkey.net/
-// @version      1.0.3
+// @version      1.0.4
 // @description  Comprova els papers requerits (LOPD + CI per tractament) pels items d'una factura Pabau
 // @author       Alex Rodriguez
 // @homepageURL  https://github.com/koretic/pabau-tampermonkey
@@ -158,6 +158,7 @@
             { id: 2702568, name: "CO2 Escote",                                     category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
             { id: 2702569, name: "CO2 Verrugas",                                   category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
             { id: 2702620, name: "CO2 Perioral",                                   category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702626, name: "Resurhair",                                       category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
 
             // ============ Láser Vascular y Pigmentación ============
             // NOTA: La majoria tenen dos documents vàlids (OR). Eliminar tattoo té un document propi.
@@ -230,10 +231,12 @@
             { id: 4480058, name: "3 sesiones ResurFX",                   category: "Packages", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
             { id: 4480056, name: "3 SESIONES PICO",                      category: "Packages", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
             { id: 4480059, name: "3 Sesiones PRGF + Vitaminas",          category: "Packages", document: { base: "CI PRGF ES 2026", expiryMonths: 12 } },
+            { id: 4480064, name: "3 sesiones Microneedling con exosomas vegetales", category: "Packages", document: { base: "CI MICRONEEDLING", expiryMonths: 12 } },
+            { id: 4480066, name: "Pack 5 sesiones Resurhair",            category: "Packages", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
             // ID del package desconegut - s'ha d'actualitzar amb el product_id real
             // quan aparegui a una factura (els IDs dels packages estan en el rang 4480xxx).
             // Mantenim l'entrada perquè el lookup per NOM continuï funcionant.
-            { id: 2702552, name: "3 Sesiones PRP + Vitaminas",           category: "Packages", document: { base: "CI PRP ES 2026",  expiryMonths: 12 } },
+            { id: 4480063, name: "3 Sesiones PRP + Vitaminas",           category: "Packages", document: { base: "CI PRP ES 2026",  expiryMonths: 12 } },
         ];
 
         const BY_ID   = new Map();

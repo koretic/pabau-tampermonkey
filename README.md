@@ -6,7 +6,7 @@ Col·lecció d'scripts de Tampermonkey per a Pabau CRM.
 
 ### `TamperMonkey_documentacion_script_3.js` ✅ (recomanat)
 
-Versió actual (`2026-07-16`). Comprova que una factura tingui **tots els
+Versió actual (`2026-07-21`). Comprova que una factura tingui **tots els
 papers signats necessaris** — el LOPD general **i** el consentiment
 informat (CI) de **cada tractament** de la factura — i bloqueja el
 botó **"Guardar cambios"** quan en falta algun o algun ha caducat.
@@ -56,7 +56,17 @@ botó és modificat.
 | **Emmagatzematge (Tampermonkey)** | Clau API xifrada per l'extensió (`GM_setValue`) |
 | **Emmagatzematge (Userscripts / iOS)** | `localStorage` de Safari, en text pla (no xifrada) |
 | **CORS (iOS / Userscripts)** | Sense credencials (`fetch` amb `credentials: "omit"`) |
-| **Versió** | `2026-07-16` |
+| **Versió** | `2026-07-21` |
+
+#### Canvis recents (2026-07-21)
+
+- Nous tractaments afegits al `treatmentsConfig`:
+  - **Resurhair** (id `2702626`) → categoria "Láser Rejuvenecimiento". Paper: `CI LASER_FIRMADO.pdf` o `CI LASER PICO (EN)_FIRMADO.pdf`.
+  - **3 sesiones Microneedling con exosomas vegetales** (id `4480064`) → categoria "Packages". Paper: `CI MICRONEEDLING_FIRMADO.pdf`.
+  - **Pack 5 sesiones Resurhair** (id `4480066`) → categoria "Packages". Paper: `CI LASER_FIRMADO.pdf` o `CI LASER PICO (EN)_FIRMADO.pdf`.
+- Bump de versió del script TamperMonkey: `1.0.3` → `1.0.4`.
+- Bump de versió del script Userscripts: `2026-07-12` → `2026-07-21`.
+- Tots els canvis s'han aplicat a les dues versions (TamperMonkey i Userscripts).
 
 #### Instal·lació
 
@@ -277,7 +287,7 @@ Categories cobertes actualment:
 | Exosomas y Biología | `Consent. Exosomas autólogos ES 2026_FIRMADO.pdf`, `CI Polinucleotidos universal ES 2026_FIRMADO.pdf`, `CI HIALURONIDASA ES 2026_FIRMADO.pdf` | 12 mesos |
 | Neuromoduladores | `CI TOXINA BOTULINICA ES 2026_FIRMADO.pdf` | 12 mesos |
 | Inductores de colágeno (Sculptra / Radiesse) | `CI INDUCTOR DE COLÁGENO ES 2026_FIRMADO.pdf` | 12 mesos |
-| Láser Rejuvenecimiento | `CI LÁSER ES v.3.2026_FIRMADO.pdf` | 12 mesos |
+| Láser Rejuvenecimiento | `CI LÁSER ES v.3.2026_FIRMADO.pdf` (inclou Resurhair) | 12 mesos |
 | Láser Vascular y Pigmentación | `CI LÁSER ES v.3.2026_FIRMADO.pdf` (excepte `Eliminar tattoo` → `CI ELIMINACIÓN DE TATUAJES-ES 2026_FIRMADO.pdf`) | 12 mesos |
 | Mesoterapia / PRGF / PRP | `CI MESOTERAPIA CON VITAMINAS ES 2026_FIRMADO.pdf`, `CI PRGF ES 2026_FIRMADO.pdf` o `CI PRP ES 2026_FIRMADO.pdf` | 12 mesos |
 | Marketing | `CI USO IMAGENES SONIDO ES 2026_FIRMADO.pdf` | 12 mesos |
@@ -334,7 +344,7 @@ Exemple:
 2. Nom mangled (lletja + `?`).
 3. Nom mangled sense `?` (stripped).
 
-Documents afectats (14-07-2026):
+Documents afectats (21-07-2026):
 
 | Tractament | Nom lògic (amb accents) | Nom a Pabau (mangled) |
 |---|---|---|

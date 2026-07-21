@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Block invoice Pabau - LOPD check (Userscripts/iOS)
 // @namespace    https://github.com/quoid/userscripts
-// @version      2026-07-12
+// @version      2026-07-21
 // @description  Comprova els papers requerits (LOPD + CI per tractament) pels items d'una factura Pabau — VERSIÓ PER A USERScripts (iOS Safari).
 // @author       Alex Rodriguez
 // @match        https://app.pabau.com/*
@@ -204,6 +204,7 @@
             { id: 2702567, name: "CO2 Cara, cuello y escote",                      category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
             { id: 2702568, name: "CO2 Escote",                                     category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
             { id: 2702569, name: "CO2 Verrugas",                                   category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702626, name: "Resurhair",                                       category: "Láser Rejuvenecimiento",       document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
 
             // ============ Láser Vascular y Pigmentación ============
             { id: 2702570, name: "IPL manchas faciales",                           category: "Láser Vascular y Pigmentación", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
@@ -250,6 +251,21 @@
             { id: 2702534, name: "Ultraformer MPT – Cara",                         category: "Tratamientos Faciales", document: { base: "CI ULTRAFORMER ES 2026",   expiryMonths: 12 } },
             { id: 2702535, name: "Ultraformer MPT – Cuello / Papada",              category: "Tratamientos Faciales", document: { base: "CI ULTRAFORMER ES 2026",   expiryMonths: 12 } },
             { id: 2702536, name: "Ultraformer MPT – Cara y cuello completo",       category: "Tratamientos Faciales", document: { base: "CI ULTRAFORMER ES 2026",   expiryMonths: 12 } },
+
+            // ============ Packages (3 sesiones ...) ============
+            // NOTA: A Pabau, els productes "3 sesiones ..." són PACKAGES
+            // (item_category="packages"), NO serveis. Tenen product_id propis
+            // en el rang 4480xxx, NO els IDs dels serveis que empaqueten.
+            // El category és "Packages" per coincidir amb el JSON de Pabau.
+            { id: 4480062, name: "3 sesiones EXOSOMAS AUTÓLOGOS",        category: "Packages", document: { base: "Consent. Exosomas autólogos ES 2026", expiryMonths: 12 } },
+            { id: 4480061, name: "3 sesiones Polinucleotidos",           category: "Packages", document: { base: "CI Polinucleotidos universal ES 2026", expiryMonths: 12 } },
+            { id: 4480057, name: "3 sesiones IPL",                       category: "Packages", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 4480058, name: "3 sesiones ResurFX",                   category: "Packages", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 4480056, name: "3 SESIONES PICO",                      category: "Packages", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 4480059, name: "3 Sesiones PRGF + Vitaminas",          category: "Packages", document: { base: "CI PRGF ES 2026", expiryMonths: 12 } },
+            { id: 4480064, name: "3 sesiones Microneedling con exosomas vegetales", category: "Packages", document: { base: "CI MICRONEEDLING ES 2026", expiryMonths: 12 } },
+            { id: 4480066, name: "Pack 5 sesiones Resurhair",            category: "Packages", document: { base: "CI LÁSER ES v.3.2026", expiryMonths: 12 } },
+            { id: 2702552, name: "3 Sesiones PRP + Vitaminas",           category: "Packages", document: { base: "CI PRP ES 2026",  expiryMonths: 12 } },
         ];
 
         const BY_ID   = new Map();
