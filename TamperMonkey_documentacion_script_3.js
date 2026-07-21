@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Block invoice Pabau - LOPD check
 // @namespace    http://tampermonkey.net/
-// @version      1.0.1
+// @version      1.0.2
 // @description  Comprova els papers requerits (LOPD + CI per tractament) pels items d'una factura Pabau
 // @author       Alex Rodriguez
 // @homepageURL  https://github.com/koretic/pabau-tampermonkey
@@ -48,6 +48,18 @@
         BUTTON_SELECTOR: 'button[data-testid="operation-create"]',
         BLOCKED_LABEL: "Falta la documentación firmada",
         LOPD_DOCUMENT: "LOPD_FIRMADO.pdf", // sempre requerit
+        // === DEBUG ===========================================================
+        // Per defecte, el panell de debug està DESACTIVAT. Pots activar-lo:
+        //   1. Canviant DEBUG_DEFAULT a `true` i tornant a carregar l'script.
+        //   2. Des del menú de Tampermonkey → 🔍 Debug: ON/OFF.
+        //   3. Amb el shortcut de teclat Ctrl+Shift+D.
+        // L'estat es desa entre sessions amb GM_setValue.
+        DEBUG_DEFAULT: false,
+        DEBUG_STORAGE_KEY: "pabau_debug_enabled",
+        // Shortcut per fer toggle del panell de debug ràpidament.
+        // Format: Ctrl+Shift+D (D de Debug).
+        DEBUG_SHORTCUT: { ctrl: true, shift: true, key: "D" },
+        // ====================================================================
         // Text que es mostra al botó mentre s'està consultant l'API.
         // El botó ja queda disabled; el text és purament informatiu.
         CONSULTING_LABEL: "Consultando documentación...",
@@ -115,17 +127,11 @@
             { id: 2702544, name: "Blefaroplastia 4 párpados",            category: "Blefaroplastia",      document: { base: "CI BLEFAROPLASTIA",     expiryMonths: 12 } },
 
             // ============ Exosomas y Biología ============
-            { id: 2702545, name: "Exosomas autólogos",                   category: "Exosomas y Biología", document: { base: "CONSENTIMIENTO EXOSOMAS AUTOLOGOS", expiryMonths: 12 } },
-            { id: 2702546, name: "Polinucleótidos",                      category: "Exosomas y Biología", document: { base: "CI POLINUCLEOTIDOS UNIVERSAL", expiryMonths: 12 } },
             { id: 2702547, name: "Hialuronidasa",                        category: "Exosomas y Biología", document: { base: "CI HIALURONIDASA", expiryMonths: 12 } },
-
-            // ============ Neuromoduladores ============
-            { id: 2702524, name: "Neuromoduladores - 1 zona",            category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
-            { id: 2702525, name: "Neuromoduladores - 2 zonas",           category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
-            { id: 2702526, name: "Neuromoduladores - 3 zonas",           category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
-            { id: 2702527, name: "Neuromoduladores tercio inferior",     category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
-            { id: 2702528, name: "Bruxismo",                             category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
-            { id: 2702529, name: "Hiperhidrosis",                        category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
+            { id: 2702545, name: "Exosomas autólogos",                   category: "Exosomas y Biología", document: { base: "CONSENTIMIENTO EXOSOMAS AUTOLOGOS", expiryMonths: 12 } },
+            { id: 2702625, name: "Polinucleótidos",                      category: "Exosomas y Biología", document: { base: "CI POLINUCLEOTIDOS UNIVERSAL", expiryMonths: 12 } },
+            { id: 2702619, name: "Polinucleótidos Facial",               category: "Exosomas y Biología", document: { base: "CI POLINUCLEOTIDOS UNIVERSAL", expiryMonths: 12 } },
+            { id: 2702546, name: "Polinucleótidos Ojeras",               category: "Exosomas y Biología", document: { base: "CI POLINUCLEOTIDOS UNIVERSAL", expiryMonths: 12 } },
 
             // ============ Inductores de colágeno (Sculptra / Radiesse) ============
             { id: 2702531, name: "Sculptra cuello",                      category: "Inductores",          document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
@@ -133,14 +139,16 @@
             { id: 2702532, name: "Radiesse Cara",                        category: "Inductores",          document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
             { id: 2702533, name: "Radiesse cuello",                      category: "Inductores",          document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
             { id: 2702597, name: "Inductores de colágeno",               category: "Inductores",          document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
+            { id: 2702622, name: "Radiesse Glúteo",                      category: "Inductores",          document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
+            { id: 2702621, name: "Sculptra Glúteo",                      category: "Inductores",          document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
 
             // ============ Láser Rejuvenecimiento ============
             // NOTA: Alguns tractaments tenen DOS documents vàlids (OR):
             //   - CI LASER_FIRMADO.pdf
             //   - CI LASER PICO (EN)_FIRMADO.pdf
             // Si en té un dels dos, és vàlid.
-            { id: 2702560, name: "ResurFX rejuvenecimiento",                       category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
             { id: 2702561, name: "Láser Pico rejuvenecimiento / manchas / melasma", category: "Láser Rejuvenecimiento",   documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702560, name: "ResurFX rejuvenecimiento",                       category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
             { id: 2702562, name: "CO2 Panfacial completo",                         category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
             { id: 2702563, name: "CO2 Tercio medio",                               category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
             { id: 2702564, name: "CO2 Periocular",                                 category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
@@ -149,6 +157,7 @@
             { id: 2702567, name: "CO2 Cara, cuello y escote",                      category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
             { id: 2702568, name: "CO2 Escote",                                     category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
             { id: 2702569, name: "CO2 Verrugas",                                   category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 2702620, name: "CO2 Perioral",                                   category: "Láser Rejuvenecimiento",       documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
 
             // ============ Láser Vascular y Pigmentación ============
             // NOTA: La majoria tenen dos documents vàlids (OR). Eliminar tattoo té un document propi.
@@ -163,21 +172,31 @@
             { id: 2702595, name: "Nd-Yag Arañas Vasculares de 5 a 15",             category: "Láser Vascular y Pigmentación", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
             { id: 2702596, name: "Nd-Yag Arañas Vasculares más de 15",             category: "Láser Vascular y Pigmentación", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
             { id: 2702574, name: "Nd-Yag Venas Prioculares",                       category: "Láser Vascular y Pigmentación", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            
+            // ============ Marketing ============
+            { id: 2702615, name: "Colaboración",                                   category: "Marketing",   document: { base: "CI USO IMAGENES SONIDO",     expiryMonths: 12 } },
 
             // ============ Mesoterapia / PRGF / PRP ============
             { id: 2702554, name: "Vitaminas NCTF 135 AH rostro",                   category: "Mesoterapia", document: { base: "CI MESOTERAPIA CON VITAMINAS", expiryMonths: 12 } },
             { id: 2702555, name: "Vitaminas NCTF 135 AH periocular",               category: "Mesoterapia", document: { base: "CI MESOTERAPIA CON VITAMINAS", expiryMonths: 12 } },
-            { id: 2702556, name: "PRGF Facial",                                    category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
-            { id: 2702557, name: "PRGF Capilar",                                   category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
-            { id: 2702558, name: "PRGF COLIRIO",                                   category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
-            { id: 2702559, name: "Pack Vitaminas + PRGF",                          category: "Mesoterapia", document: { base: "CI PRGF ES 2026",                    expiryMonths: 12 } },
-            { id: 2702616, name: "PRP Facial",                                     category: "Mesoterapia", document: { base: "CI PRP ES 2026",                    expiryMonths: 12 } },
-            { id: 2702617, name: "PRP Capilar",                                    category: "Mesoterapia", document: { base: "CI PRP ES 2026",                    expiryMonths: 12 } },
-            { id: 2702618, name: "Pack Vitaminas + PRP",                           category: "Mesoterapia", document: { base: "CI PRP ES 2026",                    expiryMonths: 12 } },
+            { id: 2702556, name: "PRGF Facial",                                    category: "Mesoterapia", document: { base: "CI PRGF ES 2026", expiryMonths: 12 } },
+            { id: 2702557, name: "PRGF Capilar",                                   category: "Mesoterapia", document: { base: "CI PRGF ES 2026", expiryMonths: 12 } },
+            { id: 2702558, name: "PRGF COLIRIO",                                   category: "Mesoterapia", document: { base: "CI PRGF ES 2026", expiryMonths: 12 } },
+            { id: 2702559, name: "Pack Vitaminas + PRGF",                          category: "Mesoterapia", document: { base: "CI PRGF ES 2026", expiryMonths: 12 } },
+            { id: 2702616, name: "PRP Facial",                                     category: "Mesoterapia", document: { base: "CI PRP ES 2026",  expiryMonths: 12 } },
+            { id: 2702617, name: "PRP Capilar",                                    category: "Mesoterapia", document: { base: "CI PRP ES 2026",  expiryMonths: 12 } },
+            { id: 2702618, name: "Pack Vitaminas + PRP",                           category: "Mesoterapia", document: { base: "CI PRP ES 2026",  expiryMonths: 12 } },
+            //FALTA DOCUMENTACION
+            { id: 2702623, name: "Plasma Gel",                                     category: "Mesoterapia",  document: null },
 
-            // ============ Marketing ============
-            { id: 2702615, name: "Colaboración",                                   category: "Marketing",   document: { base: "CI USO IMAGENES SONIDO",     expiryMonths: 12 } },
-
+             // ============ Neuromoduladores ============
+            { id: 2702524, name: "Neuromoduladores - 1 zona",            category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
+            { id: 2702525, name: "Neuromoduladores - 2 zonas",           category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
+            { id: 2702526, name: "Neuromoduladores - 3 zonas",           category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
+            { id: 2702527, name: "Neuromoduladores tercio inferior",     category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
+            { id: 2702528, name: "Bruxismo",                             category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
+            { id: 2702529, name: "Hiperhidrosis",                        category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
+           
             // ============ Refractiva (sense document definit) ============
             { id: 2702548, name: "Láser FemtoLasik – por ojo",                     category: "Refractiva",  document: null },
             { id: 2702549, name: "Láser PRK – por ojo",                            category: "Refractiva",  document: null },
@@ -196,6 +215,25 @@
             { id: 2702534, name: "Ultraformer MPT - Cara",                         category: "Tratamientos Faciales", document: { base: "CI ULTRAFORMER",   expiryMonths: 12 } },
             { id: 2702535, name: "Ultraformer MPT - Cuello / Papada",              category: "Tratamientos Faciales", document: { base: "CI ULTRAFORMER",   expiryMonths: 12 } },
             { id: 2702536, name: "Ultraformer MPT - Cara y cuello completo",       category: "Tratamientos Faciales", document: { base: "CI ULTRAFORMER",   expiryMonths: 12 } },
+
+            // ============ Packages (3 sesiones ...) ============
+            // NOTA: A Pabau, els productes "3 sesiones ..." són PACKAGES
+            // (item_category="packages"), NO serveis. Tenen product_id propis
+            // en el rang 4480xxx, NO els IDs dels serveis que empaqueten.
+            // S'han definit aquí amb els IDs reals dels packages per garantir
+            // que el lookup per ID funcioni correctament.
+            //
+            // El category és "Packages" per coincidir amb el JSON de Pabau.
+            { id: 4480062, name: "3 sesiones EXOSOMAS AUTÓLOGOS",        category: "Packages", document: { base: "CONSENTIMIENTO EXOSOMAS AUTOLOGOS", expiryMonths: 12 } },
+            { id: 4480061, name: "3 sesiones Polinucleotidos",           category: "Packages", document: { base: "CI POLINUCLEOTIDOS UNIVERSAL", expiryMonths: 12 } },
+            { id: 4480057, name: "3 sesiones IPL",                       category: "Packages", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 4480058, name: "3 sesiones ResurFX",                   category: "Packages", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 4480056, name: "3 SESIONES PICO",                      category: "Packages", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
+            { id: 4480059, name: "3 Sesiones PRGF + Vitaminas",          category: "Packages", document: { base: "CI PRGF ES 2026", expiryMonths: 12 } },
+            // ID del package desconegut - s'ha d'actualitzar amb el product_id real
+            // quan aparegui a una factura (els IDs dels packages estan en el rang 4480xxx).
+            // Mantenim l'entrada perquè el lookup per NOM continuï funcionant.
+            { id: 2702552, name: "3 Sesiones PRP + Vitaminas",           category: "Packages", document: { base: "CI PRP ES 2026",  expiryMonths: 12 } },
         ];
 
         const BY_ID   = new Map();
@@ -281,6 +319,294 @@
         }
 
         return { mangle };
+    })();
+
+    /* =========================================================================
+     * 1d. MÒDUL: debug
+     * ----------------------------------------------------------------------
+     * Panell flotant que mostra en directe el que l'script consulta a
+     * l'API i com processa els resultats. Molt útil per depurar perquè
+     * els packages no es detecten correctament.
+     *
+     * Característiques:
+     *   - Es pot moure arrossegant la capçalera.
+     *   - Botons per netejar el log i per tancar el panell.
+     *   - Cada línia mostra una etiqueta + dades (objecte, array o text).
+     *   - També escriu a la consola del navegador (F12).
+     * ======================================================================= */
+    const debug = (() => {
+        // Inicialitzem l'estat des de GM_getValue amb fallback al default.
+        // D'aquesta manera, l'estat es recorda entre sessions i cada
+        // usuari pot activar/desactivar el debug segons les seves necessitats.
+        let enabled = false;
+        try {
+            enabled = !!GM_getValue(CONFIG.DEBUG_STORAGE_KEY, CONFIG.DEBUG_DEFAULT);
+        } catch (e) {
+            enabled = !!CONFIG.DEBUG_DEFAULT;
+        }
+
+        let panel = null;
+        let content = null;
+
+        function createPanel() {
+            if (panel && document.body.contains(panel)) return panel;
+            if (panel && !document.body.contains(panel)) {
+                // El panell ha estat eliminat del DOM. El tornem a crear.
+                panel = null;
+                content = null;
+            }
+
+            panel = document.createElement("div");
+            panel.id = "pabau-debug-panel";
+            Object.assign(panel.style, {
+                position: "fixed",
+                bottom: "10px",
+                right: "10px",
+                width: "720px",
+                maxHeight: "520px",
+                backgroundColor: "#1e1e1e",
+                color: "#d4d4d4",
+                border: "2px solid #007acc",
+                borderRadius: "6px",
+                fontFamily: "Menlo, Consolas, monospace",
+                fontSize: "11px",
+                zIndex: "2147483647",
+                overflow: "hidden",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.7)",
+                display: "none", // ocult per defecte; es mostra quan s'activa
+                flexDirection: "column",
+            });
+
+            const header = document.createElement("div");
+            Object.assign(header.style, {
+                backgroundColor: "#007acc",
+                padding: "8px 12px",
+                color: "#fff",
+                fontWeight: "bold",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                cursor: "move",
+                userSelect: "none",
+            });
+
+            const title = document.createElement("span");
+            title.textContent = "🔍 Pabau LOPD Debug";
+            header.appendChild(title);
+
+            const buttons = document.createElement("div");
+            buttons.style.display = "flex";
+            buttons.style.alignItems = "center";
+            buttons.style.gap = "12px";
+
+            const clearBtn = document.createElement("span");
+            clearBtn.textContent = "🗑️";
+            clearBtn.title = "Netejar";
+            clearBtn.style.cursor = "pointer";
+            clearBtn.onclick = (e) => {
+                e.stopPropagation();
+                clear();
+            };
+            buttons.appendChild(clearBtn);
+
+            const closeBtn = document.createElement("span");
+            closeBtn.textContent = "✕";
+            closeBtn.title = "Tancar (Ctrl+Shift+D per tornar a obrir)";
+            closeBtn.style.cursor = "pointer";
+            closeBtn.onclick = (e) => {
+                e.stopPropagation();
+                // Tancar ≠ desactivar. Simplement ocultem el panell però
+                // els logs continuen acumulant-se. Per desactivar del tot,
+                // cal fer servir el menú de Tampermonkey o Ctrl+Shift+D.
+                hide();
+            };
+            buttons.appendChild(closeBtn);
+
+            header.appendChild(buttons);
+            panel.appendChild(header);
+
+            content = document.createElement("div");
+            Object.assign(content.style, {
+                padding: "10px",
+                overflow: "auto",
+                flex: "1",
+            });
+            panel.appendChild(content);
+
+            document.body.appendChild(panel);
+
+            // Drag funcionality
+            let isDragging = false;
+            let dragOffset = { x: 0, y: 0 };
+            header.addEventListener("mousedown", (e) => {
+                if (e.target.tagName === "SPAN") return;
+                isDragging = true;
+                const rect = panel.getBoundingClientRect();
+                dragOffset.x = e.clientX - rect.left;
+                dragOffset.y = e.clientY - rect.top;
+            });
+            document.addEventListener("mousemove", (e) => {
+                if (!isDragging) return;
+                panel.style.left = (e.clientX - dragOffset.x) + "px";
+                panel.style.top = (e.clientY - dragOffset.y) + "px";
+                panel.style.right = "auto";
+                panel.style.bottom = "auto";
+            });
+            document.addEventListener("mouseup", () => {
+                isDragging = false;
+            });
+
+            return panel;
+        }
+
+        function addLog(label, data) {
+            // Si el debug està desactivat, no fem absolutament res.
+            // Així zero overhead en producció.
+            if (!enabled) return;
+
+            createPanel();
+
+            // Si està activat però el panell està tancat, el mostrem.
+            // Així l'usuari veu immediatament el que està passant.
+            if (panel && panel.style.display === "none") {
+                panel.style.display = "flex";
+            }
+
+            const line = document.createElement("div");
+            line.style.marginBottom = "8px";
+            line.style.paddingBottom = "8px";
+            line.style.borderBottom = "1px solid #333";
+
+            const labelEl = document.createElement("div");
+            labelEl.style.color = "#569cd6";
+            labelEl.style.fontWeight = "bold";
+            labelEl.style.marginBottom = "4px";
+            labelEl.textContent = `▸ ${label}`;
+            line.appendChild(labelEl);
+
+            if (data !== undefined && data !== null) {
+                const dataEl = document.createElement("div");
+                dataEl.style.color = "#ce9178";
+                dataEl.style.whiteSpace = "pre-wrap";
+                dataEl.style.wordBreak = "break-word";
+                dataEl.style.maxHeight = "300px";
+                dataEl.style.overflow = "auto";
+                dataEl.textContent = typeof data === "string"
+                    ? data
+                    : JSON.stringify(data, null, 2);
+                line.appendChild(dataEl);
+            }
+
+            content.appendChild(line);
+            content.scrollTop = content.scrollHeight;
+
+            // També escriu a la consola del navegador (F12)
+            if (data !== undefined && data !== null) {
+                console.log(`[Pabau Debug] ${label}:`, data);
+            } else {
+                console.log(`[Pabau Debug] ${label}`);
+            }
+        }
+
+        function clear() {
+            if (content) content.innerHTML = "";
+            if (enabled) console.log("[Pabau Debug] Log netejat");
+        }
+
+        function show() {
+            createPanel();
+            panel.style.display = "flex";
+        }
+
+        function hide() {
+            if (panel) panel.style.display = "none";
+        }
+
+        /** Retorna l'estat actual del debug (true = actiu). */
+        function isEnabled() {
+            return enabled;
+        }
+
+        /**
+         * Activa o desactiva el mode debug. L'estat es desa entre sessions
+         * amb GM_setValue per no haver-lo de canviar manualment cada cop.
+         * @param {boolean} value
+         */
+        function setEnabled(value) {
+            enabled = !!value;
+            try {
+                GM_setValue(CONFIG.DEBUG_STORAGE_KEY, enabled);
+            } catch (e) {
+                // Si GM_setValue falla (p.ex. sandbox), ignorem.
+                // L'estat només serà vàlid durant aquesta sessió.
+            }
+            console.log(
+                `[Pabau LOPD] Debug mode ${enabled ? "🟢 ACTIVAT" : "🔴 DESACTIVAT"}`,
+            );
+            if (enabled) {
+                createPanel();
+                panel.style.display = "flex";
+                addLog("🔧 Debug mode activat", {
+                    timestamp: new Date().toISOString(),
+                    url: location.href,
+                });
+            } else {
+                if (panel) panel.style.display = "none";
+            }
+        }
+
+        /** Inverteix l'estat actual. */
+        function toggle() {
+            setEnabled(!enabled);
+        }
+
+        /**
+         * Registra el shortcut de teclat (per defecte Ctrl+Shift+D).
+         * Si el panell ja estava creat (per un altre motiu), el mostrem/amaguem.
+         * Si no, simplement fem toggle.
+         */
+        function installShortcut() {
+            const sc = CONFIG.DEBUG_SHORTCUT || {};
+            document.addEventListener("keydown", (e) => {
+                if (sc.ctrl && !e.ctrlKey) return;
+                if (sc.shift && !e.shiftKey) return;
+                if (sc.alt && !e.altKey) return;
+                if (sc.key && e.key.toUpperCase() !== sc.key.toUpperCase()) return;
+
+                e.preventDefault();
+                e.stopPropagation();
+
+                // Si el panell existeix i està ocult, primer el mostrem
+                // sense canviar l'estat de "enabled". Si ja està activat
+                // i el panell és visible, el desactivem.
+                if (enabled && panel && panel.style.display === "flex") {
+                    hide();
+                } else if (enabled) {
+                    show();
+                } else {
+                    toggle();
+                }
+            }, true);
+        }
+
+        // Registrem el shortcut immediatament (no cal esperar bootstrap)
+        installShortcut();
+
+        // Si per defecte està activat, mostrar el panell automàticament
+        if (enabled) {
+            // Esperem que el body existeixi
+            if (document.body) {
+                createPanel();
+                panel.style.display = "flex";
+            } else {
+                document.addEventListener("DOMContentLoaded", () => {
+                    createPanel();
+                    panel.style.display = "flex";
+                });
+            }
+        }
+
+        return { addLog, clear, show, hide, isEnabled, setEnabled, toggle };
     })();
 
     /* =========================================================================
@@ -424,6 +750,20 @@
                     alert("API key actualitzada. Recarrega la pàgina.");
                 }
             });
+
+            // Menú per activar/desactivar el mode debug.
+            // El text del menú canvia segons l'estat actual perquè
+            // l'usuari sàpiga què passarà quan hi cliqui.
+            GM_registerMenuCommand(
+                `🔍 Debug: ${debug.isEnabled() ? "ON" : "OFF"} (canviar)`,
+                () => debug.toggle(),
+            );
+
+            // Menú per mostrar el panell sense activar el debug.
+            // Útil per consultar logs antics que ja s'havien desat.
+            GM_registerMenuCommand("🔍 Mostrar panell debug", () => {
+                debug.show();
+            });
         }
 
         return { get, clear, registerMenu };
@@ -542,38 +882,73 @@
                 `${CONFIG.API_BASE}/${encodeURIComponent(key)}` +
                 `/invoices?inv_no=${encodeURIComponent(invoiceNo)}`;
 
+            debug.addLog(`📡 GET /invoices?inv_no=${invoiceNo}`, { url });
+
             return new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
                     method: "GET",
                     url,
                     headers: { Accept: "application/json" },
                     onload: (res) => {
+                        debug.addLog(`📥 Resposta HTTP ${res.status}`, {
+                            status: res.status,
+                            responseLength: res.responseText?.length || 0,
+                        });
                         if (res.status === 200) {
                             try {
                                 const data = JSON.parse(res.responseText);
                                 const list = data.invoices || [];
+                                debug.addLog(`📦 Factures trobades: ${list.length}`, {
+                                    invoiceCount: list.length,
+                                });
                                 if (list.length === 0) {
                                     resolve({ found: false, items: [], raw: data });
                                     return;
                                 }
                                 const inv = list[0];
+                                // Mostrem info bàsica de la factura
+                                debug.addLog(`🧾 Factura ${inv.details?.invoice_no || invoiceNo}`, {
+                                    id: inv.details?.id,
+                                    invoice_no: inv.details?.invoice_no,
+                                    invoice_type: inv.details?.invoice_type,
+                                    status: inv.details?.status,
+                                    issued_to: inv.details?.issued_to,
+                                    inv_total: inv.details?.inv_total,
+                                    itemCount: Array.isArray(inv.items) ? inv.items.length : 0,
+                                });
                                 const rawItems = Array.isArray(inv.items) ? inv.items : [];
                                 const items = rawItems.map((it) => {
-                                    const tx =
-                                        treatmentsConfig.getById(it.product_id) ||
-                                        treatmentsConfig.getByName(it.item_name);
+                                    // Primer busquem per ID, després per nom (amb fallback)
+                                    const byId = treatmentsConfig.getById(it.product_id);
+                                    const byName = byId ? null : treatmentsConfig.getByName(it.item_name);
+                                    const tx = byId || byName;
                                     const docsForItem =
                                         tx ? (tx.documents || (tx.document ? [tx.document] : null)) : null;
                                     return {
                                         product_id: it.product_id,
                                         item_name: it.item_name,
+                                        item_category: it.item_category,
                                         category: it.category,
+                                        group: it.group,
+                                        resolved_by: byId ? "id" : (byName ? "name" : "none"),
+                                        resolved_id: tx ? tx.id : null,
                                         // Pot tenir 'documents' (array) o 'document' (single) o null
                                         documents: docsForItem,
                                     };
                                 });
+                                // Mostrem taula amb cada item + quin document s'ha resolt
+                                const itemsSummary = items.map((it) => ({
+                                    product_id: it.product_id,
+                                    item_name: it.item_name,
+                                    item_category: it.item_category,
+                                    resolved_by: it.resolved_by,
+                                    resolved_id: it.resolved_id,
+                                    documents: it.documents ? it.documents.map((d) => d.base) : null,
+                                }));
+                                debug.addLog(`📋 Items processats (${items.length})`, itemsSummary);
                                 resolve({ found: true, items, raw: inv });
                             } catch (e) {
+                                debug.addLog(`❌ Error parsejant JSON /invoices`, { error: e.message });
                                 reject(
                                     new Error(
                                         "Resposta /invoices no vàlida: " + e.message,
@@ -582,8 +957,10 @@
                             }
                         } else if (res.status === 401 || res.status === 403) {
                             apiKey.clear();
+                            debug.addLog(`🔑 API key invàlida (HTTP ${res.status})`);
                             reject(new Error("API key invàlida — s'ha esborrat"));
                         } else {
+                            debug.addLog(`❌ HTTP ${res.status} a /invoices`);
                             reject(
                                 new Error(
                                     `HTTP ${res.status}: ${res.statusText}`,
@@ -591,7 +968,10 @@
                             );
                         }
                     },
-                    onerror: () => reject(new Error("Error de xarxa")),
+                    onerror: (err) => {
+                        debug.addLog(`❌ Error de xarxa a /invoices`, { error: String(err) });
+                        reject(new Error("Error de xarxa"));
+                    },
                 });
             });
         }
@@ -729,6 +1109,7 @@
                 invoiceNo,
             });
             if (!found) {
+                debug.addLog(`⚠️ Factura ${invoiceNo} no trobada a l'API`);
                 return {
                     found,
                     items: [],
@@ -747,6 +1128,13 @@
             }
 
             const required = buildRequiredFromItems(items);
+            // Mostrem quins documents s'han deduplicat
+            debug.addLog(`📋 Documents requerits (després de dedup) (${required.length})`, required.map((r) => ({
+                documentName: r.documentName,
+                scope: r.kind,
+                expiryMonths: r.expiryMonths,
+                alternatives: r.alternatives,
+            })));
 
             // Una sola crida per paper requerit, en paral·lel.
             // Per documents amb alternatives (OR), cal consultar TOTES les opcions
@@ -816,6 +1204,17 @@
                 }),
             );
 
+            // Resum dels checks: per cada document requerit, si s'ha trobat
+            const checksSummary = checks.map((c) => ({
+                documentName: c.req.documentName,
+                scope: c.req.kind,
+                found: c.found,
+                expired: c.expired,
+                createdAt: c.createdAt,
+                doc_title: c.doc?.photo_title || c.doc?.name || c.doc?.filename || c.doc?.title || null,
+            }));
+            debug.addLog(`🔍 Checks realitzats (${checks.length})`, checksSummary);
+
             const issues = checks
                 .filter(({ found, expired }) => !found || expired)
                 .map(({ req, found, expired, createdAt, checkedDocs }) => ({
@@ -827,6 +1226,8 @@
                     createdAt,
                     monthsOld: monthsSince(createdAt),
                 }));
+
+            debug.addLog(`⚠️ Issues trobats (${issues.length})`, issues);
 
             return { found: true, items, required, issues, raw };
         }
@@ -962,7 +1363,6 @@
                 // el render de React, el trobarem igual.
                 if (blockPaymentOnNode(b, tt)) n += 1;
             }
-            console.log(`[Pabau LOPD] blockPaymentButtons: blocked ${n} buttons`);
             return n;
         }
 
@@ -1067,14 +1467,9 @@
                 // Reactivem el botó que nosaltres vam bloquejar
                 const beforeDisabled = b.disabled;
                 b.disabled = false;
-                console.log(
-                    `[Pabau LOPD] unblock: ariaLabel="${b.ariaLabel}" | wasOurs=${wasOurs} | disabled: ${beforeDisabled}→${b.disabled}`,
-                );
+                
                 restored += 1;
             }
-            console.log(
-                `[Pabau LOPD] unblockPaymentButtons: total=${btns.length}, restored=${restored}, skipped=${skipped}`,
-            );
         }
 
         /**
@@ -1096,17 +1491,14 @@
         function forceBlockAllPaymentButtons(tooltip) {
             const tt = tooltip || "Revisando documentación...";
             
-            console.log(`[Pabau LOPD] forceBlock: Searching for payment buttons...`);
             
             // Search for buttons globally - they might not exist yet in the DOM
             // when this is first called (React renders them asynchronously)
             const btns = document.querySelectorAll(CONFIG.PAYMENT_BUTTON_SELECTORS);
             
-            console.log(`[Pabau LOPD] forceBlock: Found ${btns.length} buttons immediately`);
             
             // If no buttons found, set up a MutationObserver to wait for them
             if (btns.length === 0) {
-                console.log(`[Pabau LOPD] forceBlock: No buttons yet, setting up observer to wait...`);
                 waitForPaymentButtons(tt);
                 return;
             }
@@ -1133,14 +1525,12 @@
             
             buttonObserver = new MutationObserver((mutations, obs) => {
                 const btns = document.querySelectorAll(CONFIG.PAYMENT_BUTTON_SELECTORS);
-                console.log(`[Pabau LOPD] forceBlock observer: Found ${btns.length} buttons`);
                 
                 if (btns.length > 0) {
                     // Found buttons! Block them and disconnect observer
                     blockPaymentButtonsImmediate(btns, buttonObserverTooltip);
                     obs.disconnect();
                     buttonObserver = null;
-                    console.log(`[Pabau LOPD] forceBlock observer: Successfully blocked ${btns.length} buttons`);
                 }
             });
             
@@ -1150,7 +1540,6 @@
                 subtree: true
             });
             
-            console.log(`[Pabau LOPD] forceBlock: Observer set up, waiting for buttons...`);
         }
         
         /**
@@ -1193,7 +1582,6 @@
                 }
                 touched += 1;
             }
-            console.log(`[Pabau LOPD] forceBlock: ${touched} payment buttons blocked`);
         }
 
         function unblockAll() {
@@ -1314,7 +1702,6 @@
          */
         function handleTabChange() {
             const isActive = isPaymentTabActive();
-            console.log(`[Pabau LOPD] handleTabChange: isPaymentTabActive=${isActive}`);
             if (!isActive) {
                 buttonGuard.unblockAll();
                 invoiceStore.reset();
@@ -1478,9 +1865,6 @@
 
             const label = buildLabel(result);
             const tooltip = buildTooltip(result);
-            console.log(
-                `[Pabau LOPD] invoice ${invoiceNo}: ${(result.issues || []).length} issues`,
-            );
 
             if (label) {
                 btn.dataset.lopdLabel = label;
