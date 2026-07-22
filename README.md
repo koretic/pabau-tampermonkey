@@ -6,10 +6,11 @@ Col·lecció d'scripts de Tampermonkey per a Pabau CRM.
 
 ### `TamperMonkey_documentacion_script_3.js` ✅ (recomanat)
 
-Versió actual (`2026-07-21`). Comprova que una factura tingui **tots els
-papers signats necessaris** — el LOPD general **i** el consentiment
-informat (CI) de **cada tractament** de la factura — i bloqueja el
-botó **"Guardar cambios"** quan en falta algun o algun ha caducat.
+Versió actual (`2026-07-22`, script v`1.0.5`). Comprova que una factura
+tingui **tots els papers signats necessaris** — el LOPD general **i**
+el consentiment informat (CI) de **cada tractament** de la factura — i
+bloqueja el botó **"Guardar cambios"** quan en falta algun o algun ha
+caducat.
 
 A més, quan l'usuari és a la **pestanya de pagaments** (3a tab de
 `/financial`), bloqueja **tots els botons de mètode de pagament**
@@ -56,7 +57,79 @@ botó és modificat.
 | **Emmagatzematge (Tampermonkey)** | Clau API xifrada per l'extensió (`GM_setValue`) |
 | **Emmagatzematge (Userscripts / iOS)** | `localStorage` de Safari, en text pla (no xifrada) |
 | **CORS (iOS / Userscripts)** | Sense credencials (`fetch` amb `credentials: "omit"`) |
-| **Versió** | `2026-07-21` |
+| **Versió** | `2026-07-22` (script v`1.0.6`) |
+
+#### Canvis recents (2026-07-22)
+
+**Nous tractaments afegits al `treatmentsConfig`:**
+- **Inductores de colágeno Manos** → categoria "Inductores". Paper: `CI INDUCTOR DE COLAGENO_FIRMADO.pdf`.
+- **NEUROMODULADORES LATISMA** → categoria "Neuromoduladores". Paper: `CI TOXINA BOTULINICA_FIRMADO.pdf`.
+- **NEUROMODULADORES MANDIBULAR** → categoria "Neuromoduladores". Paper: `CI TOXINA BOTULINICA_FIRMADO.pdf`.
+- **3 sesiones ULTRAFORMER MPT** → categoria "Packages". Paper: `CI ULTRAFORMER_FIRMADO.pdf`.
+
+**Actualitzacions de tractaments existents:**
+- `Plasma Gel` (id `2702623`) passa de `document: null` a `document: { base: "CI PALSMA GEL", expiryMonths: 12 }`. Nota: el nom del document té el typo "PALSMA" tal com apareix a Pabau — cal respectar-lo perquè el cercador `/clients/{id}/documents` és literal.
+
+**Product_id reals afegits (per match més robust):**
+- S'han afegit els `product_id` reals als 3 tractaments nous que ja apareixien a Pabau (descoberts gràcies a la factura real 17544):
+  - `NEUROMODULADORES LATISMA` → `id: 2702627`
+  - `NEUROMODULADORES MANDIBULAR` → `id: 2702628`
+  - `3 sesiones ULTRAFORMER MPT` → `id: 4480067`
+- Això evita dependre del match per NOM (case-insensitive, sensible a espais/caràcters) i passa a usar el match directe per `product_id`, que és molt més fiable.
+
+**Bump de versions:**
+- Script TamperMonkey: `1.0.5` → `1.0.6`.
+- Script Userscripts: `2026-07-21` → `2026-07-22`.
+
+**Sincronització del script Userscripts amb el TamperMonkey:**
+- S'han sincronitzat tots els noms base dels documents amb el format
+  simplificat (sense any `-ES 2026`, sense accent en `COLÁGENO`/`LÁSER`/etc.).
+  Aquest canvi ve motivat per la nova spreadsheet `Logicas CI
+  tratamientos con PABAU(1).xlsx` (2026-07-22), on els noms ja no
+  duen l'any. Si el vostre Pabau encara mostra fitxers amb l'any
+  al nom, actualitzeu-los als noms nous o bé afegiu entrades duplicades.
+- S'ha afegit la sintaxi d'**alternatives (OR)** als tractaments de
+  làser (`documents: [...]`): ara l'script accepta `CI LASER_FIRMADO.pdf`
+  **o** `CI LASER PICO (EN)_FIRMADO.pdf` per validar làsers, igual que
+  la versió TamperMonkey ja feia.
+
+#### Com funciona el match de tractaments
+
+L'script intenta resoldre cada item de la factura en aquest ordre:
+
+1. **Per `product_id`** (més robust): si l'`id` de l'item existeix al
+   `treatmentsConfig`, es fa match directe sense ambigüitats.
+2. **Per `item_name`** (case-insensitive, amb `trim()`): si el match
+   per ID falla, es busca el nom a la llista. Aquí és on entren els
+   tractaments afegits manualment (sense `product_id`).
+
+⚠️ **Per això és important mantenir els `product_id` actualitzats**:
+un match per NOM pot fallar per qualsevol canvi d'encoding, espais
+extra, accents o majúscules/minúscules. Per exemple, la factura
+`17544` rebuda el 22/07/2026 mostra `product_id: 2702627` per
+`NEUROMODULADORES LATISMA` — si no tinguéssim aquest `id` afegit,
+el match per NOM podria fallar en qualsevol moment.
+
+#### Com afegir un nou tractament pas a pas
+
+1. Recull el `product_id` de Pabau (des de l'API `/invoices` o des
+   d'una factura existent que contingui el nou item).
+2. Afegeix una entrada a l'array `TREATMENTS` amb el format:
+   ```javascript
+   { id: 2702627, name: "NEUROMODULADORES LATISMA", category: "Neuromoduladores",
+     document: { base: "CI TOXINA BOTULINICA", expiryMonths: 12 } },
+   ```
+3. Si el document té alternatives (OR), fes servir `documents: [...]`:
+   ```javascript
+   documents: [
+     { base: "CI LASER", expiryMonths: 12 },
+     { base: "CI LASER PICO (EN)", expiryMonths: 12 }
+   ]
+   ```
+4. Si el tractament **no** requereix cap CI (p. ex. *Refractiva*), posa
+   `document: null`. El `LOPD_FIRMADO.pdf` es continua validant igualment.
+5. Recarrega la pàgina. L'script ja reconeixerà el tractament per `id`
+   o per `name`.
 
 #### Canvis recents (2026-07-21)
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Block invoice Pabau - LOPD check
 // @namespace    http://tampermonkey.net/
-// @version      1.0.4
+// @version      1.0.5
 // @description  Comprova els papers requerits (LOPD + CI per tractament) pels items d'una factura Pabau
 // @author       Alex Rodriguez
 // @homepageURL  https://github.com/koretic/pabau-tampermonkey
@@ -27,6 +27,11 @@
  *   3. Mòdul `routerWatcher`   -> detecta canvis d'URL a la SPA
  *   4. Mòdul `apiKey`          -> lectura/escriptura de la clau desada
  *   5. Mòdul `documentsApi`    -> consulta de LOPD_FIRMADO.pdf a l'API
+ *   5b. Mòdul `invoiceApi`     -> consulta del detall d'una factura per número
+ *   5c. Mòdul `invoiceLookup`  -> orquestra invoiceApi + documentsApi per factura
+ *   5d. Mòdul `modalInvoiceExtractor` -> helpers per detectar el modal
+ *       d'edició de factura obert des del calendari i extreure'n
+ *       el número de factura del DOM.
  *   6. Mòdul `buttonGuard`     -> bloqueig visual del botó "Guardar cambios"
  *   7. Mòdul `invoiceGuard`    -> orquestrador: lliga router + DOM + botó + API
  *   8. Bootstrap               -> punt d'entrada
@@ -63,6 +68,15 @@
         // Text que es mostra al botó mentre s'està consultant l'API.
         // El botó ja queda disabled; el text és purament informatiu.
         CONSULTING_LABEL: "Consultando documentación...",
+        // Modal d'edició de factura que Pabau obre quan es clica sobre
+        // un event/cita al calendari (/calendar). Aquest modal s'obre
+        // DINS la pàgina /calendar (no canvia la URL), per la qual cosa
+        // el clientId s'obté SEMPRE via API /invoices (consultant el
+        // camp `client[0].contact_id`), NO del pathname.
+        // Veure mòdul `modalInvoiceExtractor` i la lògica unificada a
+        // `invoiceGuard.process`.
+        EDIT_INVOICE_MODAL_SELECTOR:
+            '[class*="EditInvoice_editInvoiceModal"]',
         // Panel de pagaments (3a pestanya de /financial, índex 2).
         // El bloqueig del botó "Guardar cambios" NOMÉS s'aplica quan
         // aquest panel està actiu (aria-hidden="false"). Si no existeix
@@ -108,6 +122,7 @@
     const treatmentsConfig = (() => {
         const TREATMENTS = [
             // ============ Ácido Hialurónico ============
+            // Caducitat temporal d'1 dia per provar la detecció de documents caducats.
             { id: 2702512, name: "Marcación mandibular",                category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO", expiryMonths: 12 } },
             { id: 2702513, name: "Proyección de mentón",                 category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO", expiryMonths: 12 } },
             { id: 2702514, name: "Proyección de pómulos",                category: "Ácido Hialurónico",   document: { base: "CI ACIDO HIALURONICO", expiryMonths: 12 } },
@@ -141,6 +156,10 @@
             { id: 2702597, name: "Inductores de colágeno",               category: "Inductores",          document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
             { id: 2702622, name: "Radiesse Glúteo",                      category: "Inductores",          document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
             { id: 2702621, name: "Sculptra Glúteo",                      category: "Inductores",          document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
+            // Sense product_id a Pabau (encara no apareix a cap factura);
+            // el match es fa per NOM. Si Pabau retorna un altre ID per
+            // aquest nom, cal afegir-lo aquí.
+            {                                          name: "Inductores de colágeno Manos",           category: "Inductores",   document: { base: "CI INDUCTOR DE COLAGENO", expiryMonths: 12 } },
 
             // ============ Láser Rejuvenecimiento ============
             // NOTA: Alguns tractaments tenen DOS documents vàlids (OR):
@@ -187,8 +206,7 @@
             { id: 2702616, name: "PRP Facial",                                     category: "Mesoterapia", document: { base: "CI PRP ES 2026",  expiryMonths: 12 } },
             { id: 2702617, name: "PRP Capilar",                                    category: "Mesoterapia", document: { base: "CI PRP ES 2026",  expiryMonths: 12 } },
             { id: 2702618, name: "Pack Vitaminas + PRP",                           category: "Mesoterapia", document: { base: "CI PRP ES 2026",  expiryMonths: 12 } },
-            //FALTA DOCUMENTACION
-            { id: 2702623, name: "Plasma Gel",                                     category: "Mesoterapia",  document: null },
+            { id: 2702623, name: "Plasma Gel",                                     category: "Mesoterapia",  document: { base: "CI PALSMA GEL",   expiryMonths: 12 } },
 
              // ============ Neuromoduladores ============
             { id: 2702524, name: "Neuromoduladores - 1 zona",            category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
@@ -197,7 +215,8 @@
             { id: 2702527, name: "Neuromoduladores tercio inferior",     category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
             { id: 2702528, name: "Bruxismo",                             category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
             { id: 2702529, name: "Hiperhidrosis",                        category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
-           
+            { id: 2702627, name: "NEUROMODULADORES LATISMA",             category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
+            { id: 2702628, name: "NEUROMODULADORES MANDIBULAR",          category: "Neuromoduladores",    document: { base: "CI TOXINA BOTULINICA",   expiryMonths: 12 } },
             // ============ Refractiva (sense document definit) ============
             { id: 2702548, name: "Láser FemtoLasik – por ojo",                     category: "Refractiva",  document: null },
             { id: 2702549, name: "Láser PRK – por ojo",                            category: "Refractiva",  document: null },
@@ -233,10 +252,8 @@
             { id: 4480059, name: "3 Sesiones PRGF + Vitaminas",          category: "Packages", document: { base: "CI PRGF ES 2026", expiryMonths: 12 } },
             { id: 4480064, name: "3 sesiones Microneedling con exosomas vegetales", category: "Packages", document: { base: "CI MICRONEEDLING", expiryMonths: 12 } },
             { id: 4480066, name: "Pack 5 sesiones Resurhair",            category: "Packages", documents: [{ base: "CI LASER", expiryMonths: 12 }, { base: "CI LASER PICO (EN)", expiryMonths: 12 }] },
-            // ID del package desconegut - s'ha d'actualitzar amb el product_id real
-            // quan aparegui a una factura (els IDs dels packages estan en el rang 4480xxx).
-            // Mantenim l'entrada perquè el lookup per NOM continuï funcionant.
             { id: 4480063, name: "3 Sesiones PRP + Vitaminas",           category: "Packages", document: { base: "CI PRP ES 2026",  expiryMonths: 12 } },
+            { id: 4480067, name: "3 sesiones ULTRAFORMER MPT",           category: "Packages", document: { base: "CI ULTRAFORMER",  expiryMonths: 12 } },
         ];
 
         const BY_ID   = new Map();
@@ -251,10 +268,10 @@
 
         /**
          * Resol quin/quins documents + caducitat toca per un tractament.
-         * Retorna un array de {documentName, expiryMonths} - el caller
-         * ha de comprovar si el client té ALMENYS un d'aquests documents.
+         * Retorna un array de {documentName, expiryMonths, expiryDays} - el
+         * caller ha de comprovar si el client té ALMENYS un d'aquests documents.
          * @param {{id?: number|string, name?: string}} key
-         * @returns {Array<{documentName: string, expiryMonths: number}> | null}
+         * @returns {Array<{documentName: string, expiryMonths: number, expiryDays: number}> | null}
          */
         function resolve(key) {
             const entry =
@@ -266,14 +283,16 @@
             if (entry.documents) {
                 return entry.documents.map((d) => ({
                     documentName: `${d.base}_FIRMADO.pdf`,
-                    expiryMonths: d.expiryMonths,
+                    expiryMonths: d.expiryMonths ?? 0,
+                    expiryDays: d.expiryDays ?? 0,
                 }));
             }
             // Si té 'document' (single), retornar array d'un element
             if (entry.document) {
                 return [{
                     documentName: `${entry.document.base}_FIRMADO.pdf`,
-                    expiryMonths: entry.document.expiryMonths,
+                    expiryMonths: entry.document.expiryMonths ?? 0,
+                    expiryDays: entry.document.expiryDays ?? 0,
                 }];
             }
             return null;
@@ -949,7 +968,33 @@
                                     documents: it.documents ? it.documents.map((d) => d.base) : null,
                                 }));
                                 debug.addLog(`📋 Items processats (${items.length})`, itemsSummary);
-                                resolve({ found: true, items, raw: inv });
+                                // Extreiem el clientId de la resposta de l'API.
+                                //
+                                // ATENCIÓ: `details.issued_to` NO és l'ID del client
+                                // sinó el seu NOM (p. ex. "Prueba Koretic"). El
+                                // camp correcte és `client[0].contact_id`, que
+                                // conté l'ID numèric que ens cal per consultar
+                                // els documents del client.
+                                //
+                                // Aquesta és l'ÚNICA font fiable del clientId:
+                                // ens permet validar factures obertes des de
+                                // qualsevol context (/clients/{id}/financial,
+                                // /calendar obrint un modal, deep-links, etc.)
+                                // sense dependre de la URL.
+                                const clientArray = Array.isArray(inv.client)
+                                    ? inv.client
+                                    : [];
+                                const firstClient = clientArray[0] || null;
+                                const clientId = firstClient?.contact_id
+                                    ? String(firstClient.contact_id)
+                                    : null;
+                                debug.addLog(`👤 clientId resolt de la factura`, {
+                                    clientId,
+                                    source: firstClient
+                                        ? `client[0].contact_id (${firstClient.client_name})`
+                                        : "cap client trobat",
+                                });
+                                resolve({ found: true, items, raw: inv, clientId });
                             } catch (e) {
                                 debug.addLog(`❌ Error parsejant JSON /invoices`, { error: e.message });
                                 reject(
@@ -1005,16 +1050,46 @@
             return `${day}/${month}/${d.getFullYear()}`;
         }
 
-        /** Comprova si el document està caducat. expiryMonths<=0 = no caduca. */
-        function isExpired(dateStr, expiryMonths) {
-            if (!expiryMonths || expiryMonths <= 0) return false;
+        /**
+         * Comprova si el document està caducat. Admet caducitat en mesos o
+         * en dies; si no hi ha cap valor positiu configurat, no caduca.
+         */
+        function isExpired(dateStr, expiryMonths = 0, expiryDays = 0) {
+            const months = Number(expiryMonths);
+            const days = Number(expiryDays);
+            const hasMonths = Number.isFinite(months) && months > 0;
+            const hasDays = Number.isFinite(days) && days > 0;
+            if (!hasMonths && !hasDays) return false;
             if (!dateStr) return true;
+
             // Format esperat: "2026-07-02 18:03:05" → cal substituir l'espai per "T"
+            const uploadedAt = new Date(String(dateStr).replace(" ", "T"));
+            if (Number.isNaN(uploadedAt.getTime())) return true;
+
+            const expiryDates = [];
+            if (hasMonths) {
+                const expiryByMonths = new Date(uploadedAt);
+                expiryByMonths.setMonth(expiryByMonths.getMonth() + months);
+                expiryDates.push(expiryByMonths);
+            }
+            if (hasDays) {
+                const expiryByDays = new Date(uploadedAt);
+                expiryByDays.setDate(expiryByDays.getDate() + days);
+                expiryDates.push(expiryByDays);
+            }
+
+            // Si accidentalment es configuren totes dues unitats, apliquem
+            // la caducitat més restrictiva (la primera que venç).
+            const expiresAt = Math.min(...expiryDates.map((d) => d.getTime()));
+            return Date.now() > expiresAt;
+        }
+
+        /** Diferència en dies complets entre la data de pujada i ara. */
+        function daysSince(dateStr) {
+            if (!dateStr) return null;
             const d = new Date(String(dateStr).replace(" ", "T"));
-            if (Number.isNaN(d.getTime())) return true;
-            const expiry = new Date(d);
-            expiry.setMonth(expiry.getMonth() + Number(expiryMonths));
-            return new Date() > expiry;
+            if (Number.isNaN(d.getTime())) return null;
+            return Math.floor((Date.now() - d.getTime()) / (24 * 60 * 60 * 1000));
         }
 
         /** Diferència en mesos entre dues dates (enter positiu). */
@@ -1062,8 +1137,6 @@
                 const sortedBases = docs.map((d) => d.base).slice().sort();
                 const groupKey = sortedBases.join(" || ");
 
-                if (groups.has(groupKey)) continue;
-
                 // Document "principal" (per mostrar al tooltip): el primer
                 // de la llista ORIGINAL. Si te alternatives, marquem el
                 // grup amb `alternatives` perque la consulta API apliqui
@@ -1072,21 +1145,42 @@
                 // Nota: `expiryMonths` s'agafa del primer document. Si en
                 // el futur les alternatives poden tenir caducitats
                 // diferents, caldra revisar aquesta assignacio.
-                groups.set(groupKey, {
+                const candidate = {
                     base: docs[0].base,
                     documentName: `${docs[0].base}_FIRMADO.pdf`,
-                    expiryMonths: docs[0].expiryMonths,
+                    expiryMonths: docs[0].expiryMonths ?? 0,
+                    expiryDays: docs[0].expiryDays ?? 0,
                     alternatives:
                         docs.length > 1
                             ? docs.map((d) => `${d.base}_FIRMADO.pdf`)
                             : null,
-                });
+                };
+
+                // Si dos tractaments comparteixen el mateix document però
+                // tenen caducitats diferents, conservem la més restrictiva.
+                // La conversió a dies només serveix per comparar configuracions;
+                // el càlcul real continua fent-se amb calendari a isExpired().
+                const expiryRank = (entry) => {
+                    const configured = [];
+                    if (Number(entry.expiryDays) > 0) {
+                        configured.push(Number(entry.expiryDays));
+                    }
+                    if (Number(entry.expiryMonths) > 0) {
+                        configured.push(Number(entry.expiryMonths) * 30.4375);
+                    }
+                    return configured.length > 0 ? Math.min(...configured) : Infinity;
+                };
+                const current = groups.get(groupKey);
+                if (!current || expiryRank(candidate) < expiryRank(current)) {
+                    groups.set(groupKey, candidate);
+                }
             }
             return [
                 {
                     documentName: CONFIG.LOPD_DOCUMENT,
                     base: CONFIG.LOPD_DOCUMENT,
                     expiryMonths: 0,
+                    expiryDays: 0,
                     kind: "lopd",
                 },
                 ...[...groups.values()].map((d) => ({
@@ -1098,16 +1192,29 @@
 
         /**
          * Fa tota la validació d'una factura.
+         *
+         * IMPORTANT: A partir de la v1.0.5 el paràmetre `clientId` està
+         * OBSOLET. La resposta de /invoices?inv_no=... SEMPRE inclou
+         * `client[0].contact_id`, que és l'única font fiable del
+         * clientId (el `details.issued_to` és el NOM, no pas l'ID).
+         *
+         * El paràmetre es manté a la signatura per compatibilitat amb
+         * crides antigues, però S'IGNORA — s'usa sempre el valor
+         * resolt per `invoiceApi`.
+         *
          * @returns {Promise<{
          *   found: boolean,
          *   items: Array,
          *   required: Array,
          *   issues: Array<{kind: string, name: string, scope: string, createdAt: string|null, monthsOld: number|null}>,
-         *   raw: object|null
+         *   raw: object|null,
+         *   clientId: string|null,
          * }>}
          */
         async function checkInvoice({ apiKey: key, clientId, invoiceNo }) {
-            const { found, items, raw } = await invoiceApi.getByInvoiceNo({
+            // `clientId` del paràmetre s'ignora: ve sempre de la resposta.
+            void clientId;
+            const { found, items, raw, clientId: resolvedClientId } = await invoiceApi.getByInvoiceNo({
                 apiKey: key,
                 invoiceNo,
             });
@@ -1127,6 +1234,31 @@
                         },
                     ],
                     raw,
+                    clientId: resolvedClientId,
+                };
+            }
+
+            // El clientId SEMPRE ve de la resposta (client[0].contact_id).
+            // Si la factura no té cap client associat, no podem validar res.
+            if (!resolvedClientId) {
+                debug.addLog(
+                    `⚠️ La factura ${invoiceNo} no té cap client associat (client[0].contact_id absent)`,
+                );
+                return {
+                    found,
+                    items,
+                    required: [],
+                    issues: [
+                        {
+                            kind: "missing",
+                            name: `Client associat a la factura ${invoiceNo}`,
+                            scope: "invoice",
+                            createdAt: null,
+                            monthsOld: null,
+                        },
+                    ],
+                    raw,
+                    clientId: null,
                 };
             }
 
@@ -1136,6 +1268,7 @@
                 documentName: r.documentName,
                 scope: r.kind,
                 expiryMonths: r.expiryMonths,
+                expiryDays: r.expiryDays,
                 alternatives: r.alternatives,
             })));
 
@@ -1153,15 +1286,19 @@
                     const results = await Promise.all(
                         docsToCheck.map(async (docName) => {
                             try {
-                                const r = await documentsApi.findDocument({
-                                    apiKey: key,
-                                    clientId,
-                                    documentName: docName,
-                                });
+                                    const r = await documentsApi.findDocument({
+                                        apiKey: key,
+                                        clientId: resolvedClientId,
+                                        documentName: docName,
+                                    });
                                 const top = r.document || null;
                                 const createdAt = top ? top.date || null : null;
                                 const expired =
-                                    !!top && isExpired(createdAt, req.expiryMonths);
+                                    !!top && isExpired(
+                                        createdAt,
+                                        req.expiryMonths,
+                                        req.expiryDays,
+                                    );
                                 return {
                                     found: !!top,
                                     expired,
@@ -1227,6 +1364,8 @@
                     alternatives: req.alternatives || null,
                     scope: req.kind, // "lopd" | "treatment"
                     createdAt,
+                    expiryDays: req.expiryDays,
+                    daysOld: daysSince(createdAt),
                     monthsOld: monthsSince(createdAt),
                 }));
 
@@ -1235,7 +1374,104 @@
             return { found: true, items, required, issues, raw };
         }
 
-        return { checkInvoice, buildRequiredFromItems, isExpired, monthsSince, formatDate };
+        return {
+            checkInvoice,
+            buildRequiredFromItems,
+            isExpired,
+            daysSince,
+            monthsSince,
+            formatDate,
+        };
+    })();
+
+    /* =========================================================================
+     * 5d. MÒDUL: modalInvoiceExtractor
+     * ----------------------------------------------------------------------
+     * Helpers per gestionar factures que s'obren DINS d'un modal
+     * (p. ex. quan es fa clic sobre un event amb factura al calendari
+     * de Pabau: URL = /calendar, però el panell de pagaments apareix
+     * dins d'un dialog). En aquest context:
+     *   - La URL NO conté /clients/{id}/..., per la qual cosa el
+     *     pathname no ens serveix per obtenir el clientId.
+     *   - L'element `#invoice` TAMPOC està present (és propi de la
+     *     pàgina /clients/{id}/financial, no del modal del calendari).
+     *
+     * Aquest mòdul exposa dues funcions:
+     *   - isInsideEditInvoiceModal() : retorna l'element del modal si
+     *     n'hi ha algun obert (classe EditInvoice_editInvoiceModal).
+     *   - extractInvoiceNoFromModal(modal) : extreu el número de factura
+     *     del DOM del modal (l'HTML renderitzat mostra "#17543" al
+     *     costat de l'etiqueta "Factura").
+     *
+     * Amb aquestes dues dades, `invoiceGuard.processFromModal` pot
+     * resoldre el clientId consultant l'API /invoices (que retorna
+     * `details.issued_to`) i continuar la validació de documents
+     * sense necessitat del path.
+     * ======================================================================= */
+    const modalInvoiceExtractor = (() => {
+        /**
+         * Retorna l'element del modal d'edició de factura si n'hi ha
+         * algun de muntat al DOM, o `null` si no.
+         *
+         * Usem `[class*="EditInvoice_editInvoiceModal"]` perquè Pabau
+         * aplica un hash BEM als noms de classe (`__BOVNL` al final,
+         * que canvia entre desplegaments).
+         */
+        function isInsideEditInvoiceModal() {
+            return document.querySelector(
+                CONFIG.EDIT_INVOICE_MODAL_SELECTOR,
+            );
+        }
+
+        /**
+         * Extreu el número de factura del DOM del modal.
+         *
+         * Estructura esperada al modal renderitzat:
+         *   <div class="textContent">
+         *     <span class="textContentHeaderText">Factura</span>
+         *     <span class="textContentInfoText">#17543</span>
+         *   </div>
+         *
+         * Busquem l'span amb text "Factura" i agafem el següent germà.
+         * Si no el trobem, retornem null i `processFromModal` ja
+         * s'encarregarà de gestionar-ho (no fa res).
+         *
+         * @param {Element} modal - element arrel del modal (no cal que
+         *   contingui directament la informació, fem servir querySelectorAll).
+         * @returns {string|null} número de factura (p. ex. "17543") o null.
+         */
+        function extractInvoiceNoFromModal(modal) {
+            if (!modal) return null;
+
+            // 1) Cerca directa al modal: span amb classe textContentHeaderText
+            //    i text exacte "Factura". El seu següent germà amb classe
+            //    textContentInfoText hauria de contenir "#NNNNN".
+            const headers = modal.querySelectorAll(
+                ".textContentHeaderText, span[class*='textContentHeaderText']",
+            );
+            for (const h of headers) {
+                if (h.textContent && h.textContent.trim() === "Factura") {
+                    const sibling = h.nextElementSibling;
+                    if (sibling) {
+                        const txt = (sibling.textContent || "").trim();
+                        const m = txt.match(/^#?(\d{1,10})$/);
+                        if (m) return m[1];
+                    }
+                }
+            }
+
+            // 2) Fallback: regex sobre el text complet del modal. Això és
+            //    molt més permissiu i pot capturar el número encara que
+            //    Pabau canviï l'estructura de classes en un futur.
+            const text = modal.textContent || "";
+            // Busquem patrons tipus "Factura\n#17543" o "Factura #17543".
+            const m = text.match(/Factura\s*#?\s*(\d{1,10})/);
+            if (m) return m[1];
+
+            return null;
+        }
+
+        return { isInsideEditInvoiceModal, extractInvoiceNoFromModal };
     })();
 
     /* =========================================================================
@@ -1247,6 +1483,33 @@
      * ======================================================================= */
 
     const buttonGuard = (() => {
+        // ─── Flag anti-bucle ────────────────────────────────────────────
+        // Totes les funcions d'aquest mòdul que MODIFIQUIN EL DOM
+        // (canviar text, estils, disabled, etc.) activen aquest flag
+        // abans i el desactiven amb un microtask al final. Així,
+        // `ensureDom` (i qualsevol MutationObserver) pot saber que els
+        // canvis que veu al DOM són "nostres" i NO han de disparar
+        // una nova validació de l'API.
+        //
+        // Si NO féssim això, el bucle seria infinit:
+        //   process() → _runValidation() → buttonGuard.block() (canvia DOM)
+        //   → MutationObserver → ensureDom() → process() → ...
+        let _acting = false;
+        function isActing() {
+            return _acting;
+        }
+        function beginMutation() {
+            _acting = true;
+        }
+        function endMutation() {
+            // setTimeout perquè el MutationObserver tingui temps de
+            // veure els canvis ABANS de permetre una nova consulta.
+            setTimeout(() => {
+                _acting = false;
+            }, 0);
+        }
+        // ─────────────────────────────────────────────────────────────────
+
         /**
          * Bloqueja UN sol botó (selector configurable). Aplica el color
          * vermell, desactiva, posa tooltip i desa l'estat als datasets.
@@ -1284,22 +1547,27 @@
                 btn.dataset.lopdOriginalLabel = label.textContent || "";
             }
 
-            label.textContent = finalLabel;
-            btn.title = finalTooltip;
+            beginMutation();
+            try {
+                label.textContent = finalLabel;
+                btn.title = finalTooltip;
 
-            Object.assign(btn.style, {
-                backgroundColor: "#dc3545",
-                borderColor: "#dc3545",
-                color: "#ffffff",
-                opacity: "0.85",
-                cursor: "not-allowed",
-            });
+                Object.assign(btn.style, {
+                    backgroundColor: "#dc3545",
+                    borderColor: "#dc3545",
+                    color: "#ffffff",
+                    opacity: "0.85",
+                    cursor: "not-allowed",
+                });
 
-            btn.disabled = true;
-            btn.dataset.lopdBlocked = "true";
-            btn.dataset.lopdLabel = finalLabel;
-            btn.dataset.lopdTooltip = finalTooltip;
-            btn.dataset.lopdKey = blockKey;
+                btn.disabled = true;
+                btn.dataset.lopdBlocked = "true";
+                btn.dataset.lopdLabel = finalLabel;
+                btn.dataset.lopdTooltip = finalTooltip;
+                btn.dataset.lopdKey = blockKey;
+            } finally {
+                endMutation();
+            }
             return true;
         }
 
@@ -1307,27 +1575,32 @@
         function unblockOne(btn) {
             if (!btn) return;
 
-            // IMPORTANT: restaurem el text ORIGINAL del <p> que hem desat
-            // a `data-lopd-original-label` la primera vegada que es va
-            // bloquejar. Si mai no es va arribar a bloquejar (perquè la
-            // documentació ja estava OK de bon principi), no fem res amb
-            // el text.
-            const labelEl = btn.querySelector("p") || btn;
-            if (btn.dataset.lopdOriginalLabel != null) {
-                labelEl.textContent = btn.dataset.lopdOriginalLabel;
-            }
+            beginMutation();
+            try {
+                // IMPORTANT: restaurem el text ORIGINAL del <p> que hem desat
+                // a `data-lopd-original-label` la primera vegada que es va
+                // bloquejar. Si mai no es va arribar a bloquejar (perquè la
+                // documentació ja estava OK de bon principi), no fem res amb
+                // el text.
+                const labelEl = btn.querySelector("p") || btn;
+                if (btn.dataset.lopdOriginalLabel != null) {
+                    labelEl.textContent = btn.dataset.lopdOriginalLabel;
+                }
 
-            delete btn.dataset.lopdBlocked;
-            delete btn.dataset.lopdLabel;
-            delete btn.dataset.lopdTooltip;
-            delete btn.dataset.lopdKey;
-            // NOTA: NO esborrem `lopdOriginalLabel` perquè si l'usuari
-            // canvia de tractament/items i torna a haver-hi issues,
-            // puguem tornar a bloquejar i restaurar correctament.
-            // (Sempre mantenim el primer text original capturat.)
-            btn.title = "";
-            btn.disabled = false;
-            btn.style.cssText = "";
+                delete btn.dataset.lopdBlocked;
+                delete btn.dataset.lopdLabel;
+                delete btn.dataset.lopdTooltip;
+                delete btn.dataset.lopdKey;
+                // NOTA: NO esborrem `lopdOriginalLabel` perquè si l'usuari
+                // canvia de tractament/items i torna a haver-hi issues,
+                // puguem tornar a bloquejar i restaurar correctament.
+                // (Sempre mantenim el primer text original capturat.)
+                btn.title = "";
+                btn.disabled = false;
+                btn.style.cssText = "";
+            } finally {
+                endMutation();
+            }
         }
 
         /**
@@ -1444,6 +1717,16 @@
          * la comprovació de `lopdGuard`).
          */
         function unblockPaymentButtons() {
+            // Si la validació ja ha acabat correctament abans que React
+            // muntés els botons, cancel·lem l'observer preventiu. Si no,
+            // podria trobar-los més tard i deixar-los bloquejats amb el text
+            // "Revisando documentación..." sense cap nova validació.
+            if (buttonObserver) {
+                buttonObserver.disconnect();
+                buttonObserver = null;
+                buttonObserverTooltip = null;
+            }
+
             const btns = document.querySelectorAll(
                 `${CONFIG.PAYMENT_BUTTON_SELECTORS}[data-lopd-blocked="true"]`,
             );
@@ -1599,15 +1882,24 @@
 
             // 3) IMPORTANT: netejar TOTS els marcadors de lopd al DOM,
             //    no només als elements actualment bloquejats.
+            //
+            //    Incloem `data-lopd-checked` aquí perquè SINÓ el botó
+            //    principal recorda que ja s'ha validat i `process()` no
+            //    torna a consultar l'API quan l'usuari reentra al panell.
             document
                 .querySelectorAll(
-                    `${CONFIG.BUTTON_SELECTOR}[data-lopd-key], ${CONFIG.BUTTON_SELECTOR}[data-lopd-checked]`,
+                    `${CONFIG.BUTTON_SELECTOR}[data-lopd-key], ` +
+                    `${CONFIG.BUTTON_SELECTOR}[data-lopd-checked], ` +
+                    `${CONFIG.BUTTON_SELECTOR}[data-lopd-label], ` +
+                    `${CONFIG.BUTTON_SELECTOR}[data-lopd-tooltip], ` +
+                    `${CONFIG.BUTTON_SELECTOR}[data-lopd-original-label]`,
                 )
                 .forEach((b) => {
                     delete b.dataset.lopdKey;
                     delete b.dataset.lopdChecked;
                     delete b.dataset.lopdLabel;
                     delete b.dataset.lopdTooltip;
+                    delete b.dataset.lopdOriginalLabel;
                 });
         }
 
@@ -1618,6 +1910,7 @@
             unblockPaymentButtons,
             forceBlockAllPaymentButtons,
             unblockAll,
+            isActing, // ← exposat perquè invoiceGuard pugui evitar el bucle
         };
     })();
 
@@ -1625,24 +1918,47 @@
      * 7. MÒDUL: invoiceGuard
      * ----------------------------------------------------------------------
      * Orquestrador: per a cada vista de la SPA, decideix si cal bloquejar
-     * el botó "Guardar cambios". Manté una memòria de vistes ja comprovades
-     * (Set indexat per `clientId|pathname+search`) per no repetir crides
-     * a l'API innecessàriament.
+     * el botó "Guardar cambios". Manté una memòria de factures ja
+     * validades (Map indexat per `invoiceNo`) per no repetir crides a
+     * l'API innecessàriament.
      *
-     * Flux:
-     *   1. Router notifica un canvi d'URL.
-     *   2. Netejem l'estat del botó anterior.
-     *   3. Si hem canviat de client, buidem la memòria.
-     *   4. El MutationObserver del DOM detecta quan apareix el botó i
-     *      crida `process()`. Si la vista ja s'ha processat, només
-     *      reaplica el bloqueig; si no, consulta l'API un sol cop.
+     * IMPORTANT (v1.0.5+): ja NO s'obté el clientId del pathname de la
+     * URL. Sempre es consulta /invoices?inv_no=... i s'extreu el
+     * `client[0].contact_id`. Això unifica el comportament entre:
+     *   - Pàgina /clients/{id}/financial (URL "normal")
+     *   - Modal obert des de /calendar (URL = /calendar)
+     *   - Deep-links o qualsevol altre context
+     *
+     * El `clientId` ja NO forma part del cacheKey (només `invoiceNo`)
+     * perquè cada número de factura és únic a Pabau.
      * ======================================================================= */
 
     const invoiceGuard = (() => {
-        const processedViews = new Set(); // memo: clientId|invoiceNo
+        // Resultat de l'última validació feta durant l'entrada ACTUAL al
+        // panell de pagaments. La clau és invoiceNo i el valor conté el text
+        // ja calculat. `label === null` significa que la documentació és OK.
+        //
+        // Això és més robust que un flag temporal després del click: React
+        // pot continuar modificant el DOM bastants ms després, però aquestes
+        // mutacions només reapliquen el resultat conegut i NO consulten l'API.
+        const processedViews = new Map(); // invoiceNo -> { label, tooltip }
         let inFlight = null; // Promise de la validació en curs (per evitar duplicats)
         let tabObserver = null; // MutationObserver dedicat als panels rc-tabs
-        let _processingKey = null; // clau client|factura que s'està processant ara mateix
+        let _processingKey = null; // clau de la factura que s'està processant
+        let paymentTabWasActive = null; // evita processar dues vegades la mateixa transició
+
+        // ─── Flag anti-revalidació per clicks ──────────────────────────
+        // Quan l'usuari clica un botó de pagament, Pabau modifica el DOM
+        // (canvia l'estat del botó a "Processing...", mostra diàlegs, etc.).
+        // El MutationObserver global veu aquests canvis i dispararia
+        // `process()` innecessàriament. Per evitar-ho, activem aquest
+        // flag durant un microtask quan es detecta un click. `ensureDom`
+        // el comprova i retorna immediatament si està actiu.
+        let _actingOnUserAction = false;
+        const PAYMENT_BTN_SELECTOR =
+            CONFIG.PAYMENT_BUTTON_SELECTORS +
+            ', button[data-testid="operation-create"]';
+        // ─────────────────────────────────────────────────────────────────
 
         /**
          * Comprova si el panel de pagaments (3a pestanya de la pàgina
@@ -1673,45 +1989,69 @@
             );
         }
 
-        function clientIdFromPath(pathname) {
-            const m = pathname.match(/^\/clients\/(\d+)\//);
-            return m ? m[1] : null;
-        }
-
-        /** Neteja estats quan es canvia de vista o de client. */
-        function handleNavigation({ oldHref }) {
+        /** Neteja estats quan es canvia d'URL. */
+        function handleNavigation() {
             buttonGuard.unblockAll();
             invoiceStore.reset();
-
-            const oldClient = clientIdFromPath(new URL(oldHref).pathname);
-            const newClient = clientIdFromPath(location.pathname);
-            // BUGFIX: abans només es buidava `processedViews` quan canviava
-            // el client. Això feia que si l'usuari sortia d'/financial i
-            // hi tornava (mateix client i mateixa factura), l'script
-            // reapliaqués l'estat antic sense tornar a bloquejar preventivament
-            // els botons de pagament. Ara ho buidem SEMPRE: cada nova
-            // entrada al panell de pagaments és una nova oportunitat per
-            // aplicar el bloqueig preventiu i validar l'API.
-            void oldClient;
-            void newClient;
+            // Sempre buidem la memòria: cada nova URL és una nova oportunitat
+            // per aplicar el bloqueig preventiu i validar l'API.
             processedViews.clear();
         }
 
         /**
          * S'ha canviat la pestanya activa. Si hem SORTIT del panel de
          * pagaments → desbloquegem TOT immediatament (botons de pagament
-         * inclosos). Si hem ENTRAT al panel de pagaments → el `process()`
-         * ja s'encarregarà a través de l'observer del `install()`.
+         * inclosos). Si hem ENTRAT al panel de pagaments → tornem a
+         * validar SEMPRE per obtenir l'estat actualitzat dels documents
+         * (Pabau pot haver afegit/actualitzat documents mentrestant).
+         *
+         * IMPORTANT: quan es canvia de tab, Pabau només canvia l'atribut
+         * `aria-hidden` del panel — el botó "Guardar cambios" segueix
+         * sent el MATEIX element DOM, per tant el MutationObserver NO es
+         * torna a disparar. Per això forcem una nova validació aquí.
          */
         function handleTabChange() {
             const isActive = isPaymentTabActive();
+
+            // L'observer pot rebre diverses mutacions per una sola acció.
+            // Només ens interessa la transició real false -> true o
+            // true -> false, no qualsevol canvi intern del panel.
+            if (paymentTabWasActive === isActive) return;
+            paymentTabWasActive = isActive;
+
+            debug.addLog(
+                `🔀 handleTabChange — isActive=${isActive}`,
+                { url: location.href },
+            );
             if (!isActive) {
                 buttonGuard.unblockAll();
                 invoiceStore.reset();
+                processedViews.clear();
+                // Netejem _processingKey per si n'hi havia una validació
+                // en curs. Així, quan es torni a entrar al panell,
+                // process() no quedarà bloquejada per la promesa antiga.
+                _processingKey = null;
             } else {
                 buttonGuard.forceBlockAllPaymentButtons(
                     "Revisando documentación...",
                 );
+                // Forcem una nova validació SEMPRE que l'usuari entra al
+                // panell de pagaments. Sense això, si Pabau ha actualitzat
+                // algun document mentre l'usuari estava en una altra tab,
+                // no ens n'assabentaríem fins a la propera recàrrega.
+                //
+                // IMPORTANT: netejem _processingKey per si la promesa
+                // anterior encara no ha acabat — aleshores _runValidation
+                // detectaria `_processingKey === cacheKey` i retornaria
+                // immediatament sense tornar a consultar l'API.
+                _processingKey = null;
+                // IMPORTANT: aquí `apiKey` (sense `.get()`) es refereix al
+                // MÒDUL `apiKey` (l'objecte `{get, clear, registerMenu}`),
+                // no pas a la CLAU de l'API (string). Si passéssim l'objecte,
+                // `encodeURIComponent` el serialitzaria a "[object Object]" i
+                // l'API retornaria 403. Per tant, cal cridar `apiKey.get()`
+                // explícitament per obtenir la string.
+                process({ apiKey: apiKey.get() });
             }
         }
 
@@ -1733,8 +2073,10 @@
             // kind === "expired": el document existeix però ha caducat.
             const date = invoiceLookup.formatDate(i.createdAt);
             const when = date ? `subido el ${date}` : "fecha de subida desconocida";
-            const months = i.monthsOld != null ? ` (hace ${i.monthsOld} meses)` : "";
-            return `${tag}${i.name} · Caducado · ${when}${months}${alternativesInfo}`;
+            const age = i.expiryDays > 0 && i.daysOld != null
+                ? ` (hace ${i.daysOld} ${i.daysOld === 1 ? "día" : "días"})`
+                : (i.monthsOld != null ? ` (hace ${i.monthsOld} meses)` : "");
+            return `${tag}${i.name} · Caducado · ${when}${age}${alternativesInfo}`;
         }
 
         /**
@@ -1761,94 +2103,65 @@
         }
 
         /**
-         * Punt d'entrada del DOM observer; idempotent.
-         * Flux:
-         *   1. Si no tenim #invoice → esperem.
-         *   2. Calculem cacheKey = clientId|invoiceNo.
-         *   3. Bloquegem el botó AMB CONSULTA (evita que l'usuari cliqui
-         *      mentre es fan les crides a l'API).
-         *   4. Si ja tenim el resultat en memòria → reapliquem el botó.
-         *   5. Si ja hi ha una consulta en vol per la mateixa clau → esperem-la.
-         *   6. Sinó: invoquem invoiceLookup.checkInvoice.
+         * Flux comú de validació per a TANT el flux "normal" com el del
+         * modal del calendari. El clientId SEMPRE es resol internament
+         * a la resposta de /invoices, independentment de l'origen.
+         *
+         * El `cacheKey` és simplement l'`invoiceNo` perquè cada número
+         * de factura és únic a Pabau.
          */
-        async function process({ apiKey: key, clientId }) {
-            const btn = document.querySelector(CONFIG.BUTTON_SELECTOR);
-            if (!btn) return;
+        /** Aplica un resultat ja calculat sense tornar a consultar l'API. */
+        function applyValidationState(btn, state) {
+            if (!btn || !state) return;
 
-            // Només actuem quan el panel de pagaments està actiu.
-            // Si no existeix o no està visible, NO fem res — el
-            // MutationObserver del bootstrap ens tornarà a cridar
-            // quan el DOM canviï (canvi de tab, muntatge inicial, etc.).
-            if (!isPaymentTabActive()) return;
-
-            const invoiceNo = invoiceStore.invoiceNo;
-            if (!invoiceNo) return; // encara no tenim número de factura
-
-            const cacheKey = `${clientId}|${invoiceNo}`;
-
-            // 1) Si ja estem processant AQUESTA COMBINACIÓ I AQUEST BOTÓ
-            //    concret en aquest precís moment → no fem res. Usem
-            //    `lopdChecked` (no pas `lopdKey`) perquè l'`unblockAll()`
-            //    esborra TOTS els marcadors en sortir del panel, de manera
-            //    que quan l'usuari TORN al panel, `lopdChecked` és undefined
-            //    i podem tornar a aplicar el bloqueig.
-            //
-            // BUGFIX: amb el canvi a `processedViews.clear()` en tota
-            // navegació, aquesta branca ja no s'usa mai en reentrar al
-            // panell — sempre validem de nou. Es manté com a safety net
-            // per a crides duplicades del propi observer mentre una
-            // consulta és en vol (mateixa factura, mateix botó, mateixa
-            // promesa).
-            if (btn.dataset.lopdChecked === cacheKey) return;
-
-            // 2) Brava de memòria ELIMINADA: abans reaplicava l'estat
-            //    desat, però amb `processedViews.clear()` ja no hi ha
-            //    memòria vàlida quan entrem al panell. Entrem sempre
-            //    per la branca 3 (bloqueig preventiu + nova consulta API)
-            //    per garantir consistència amb Pabau.
-
-            // 3) Bloquegem immediatament amb el text de "consultant"
-            //    perquè l'usuari no pugui prémer el botó durant les crides.
-            //    També bloquegem els botons de pagament (sempre deshabilitats
-            //    per defecte; només s'habilitaran si la validació és OK).
-            //    Marquem el botó amb el cacheKey per evitar duplicar feina.
-            //    IMPORTANT: Use "Revisando..." as tooltip per consistency
-            //    with forceBlockAllPaymentButtons() - this ensures the
-            //    idempotency check in blockPaymentOnNode doesn't skip
-            //    the disabled state.
-            buttonGuard.block(CONFIG.CONSULTING_LABEL, "");
-            buttonGuard.blockPaymentButtons("Revisando documentación...");
-            btn.dataset.lopdChecked = cacheKey;
-            btn.dataset.lopdLabel = CONFIG.CONSULTING_LABEL;
-            btn.dataset.lopdTooltip = "";
-            _processingKey = cacheKey;
-
-            // 4) Si ja hi ha una validació en curs per la mateixa combinació
-            //    → esperem-la i reapliquem el resultat.
-            if (inFlight && inFlight.key === cacheKey) {
-                await inFlight.promise;
-                const hadIssues = !!btn.dataset.lopdLabel;
-                if (hadIssues) {
-                    buttonGuard.block(
-                        btn.dataset.lopdLabel,
-                        btn.dataset.lopdTooltip || "",
-                    );
-                    buttonGuard.blockPaymentButtons(
-                        btn.dataset.lopdTooltip || "",
-                    );
-                } else {
-                    buttonGuard.unblockOne(btn);
-                    buttonGuard.unblockPaymentButtons();
-                }
+            if (state.label) {
+                buttonGuard.block(state.label, state.tooltip || "");
+                buttonGuard.blockPaymentButtons(
+                    state.tooltip ||
+                    "No es pot cobrar fins que la documentació estigui al dia",
+                );
                 return;
             }
 
-            // 5) Llancem la validació.
+            // Documentació OK: només revertim elements que encara portin
+            // marcadors nostres. No forcem `disabled=false` sobre botons que
+            // Pabau hagi desactivat durant el processament del pagament.
+            if (btn.dataset.lopdBlocked === "true") {
+                buttonGuard.unblockOne(btn);
+            }
+            buttonGuard.unblockPaymentButtons();
+        }
+
+        async function _runValidation({ apiKey: key, invoiceNo, cacheKey }) {
+            const btn = document.querySelector(CONFIG.BUTTON_SELECTOR);
+            if (!btn) return;
+
+            // Bloquegem preventivament mentre dure la consulta.
+            buttonGuard.block(CONFIG.CONSULTING_LABEL, "");
+            buttonGuard.blockPaymentButtons("Revisando documentación...");
+            _processingKey = cacheKey;
+
+            // Si ja hi ha una validació en curs per la mateixa clau,
+            // esperem-la i reapliquem el resultat al botó actual.
+            if (inFlight && inFlight.key === cacheKey) {
+                const concurrentResult = await inFlight.promise;
+                const state = {
+                    label: buildLabel(concurrentResult),
+                    tooltip: buildTooltip(concurrentResult),
+                };
+                processedViews.set(cacheKey, state);
+                applyValidationState(btn, state);
+                _processingKey = null;
+                return;
+            }
+
+            // Llancem la validació. Noteu que NO passem clientId:
+            // el mòdul `invoiceLookup.checkInvoice` l'extreurà de
+            // `client[0].contact_id` a la resposta de /invoices.
             const p = (async () => {
                 try {
                     return await invoiceLookup.checkInvoice({
                         apiKey: key,
-                        clientId,
                         invoiceNo,
                     });
                 } catch (err) {
@@ -1864,24 +2177,49 @@
             const result = await p;
             inFlight = null;
 
-            processedViews.add(cacheKey);
-
-            const label = buildLabel(result);
-            const tooltip = buildTooltip(result);
-
-            if (label) {
-                btn.dataset.lopdLabel = label;
-                btn.dataset.lopdTooltip = tooltip || "";
-                buttonGuard.block(label, tooltip);
-                const paymentTooltip = tooltip || "No es pot cobrar fins que la documentació estigui al dia";
-                buttonGuard.blockPaymentButtons(paymentTooltip);
-            } else {
-                btn.dataset.lopdLabel = "";
-                btn.dataset.lopdTooltip = "";
-                buttonGuard.unblockOne(btn);
-                buttonGuard.unblockPaymentButtons();
-            }
+            const state = {
+                label: buildLabel(result),
+                tooltip: buildTooltip(result),
+            };
+            processedViews.set(cacheKey, state);
+            applyValidationState(btn, state);
             _processingKey = null;
+        }
+
+        /**
+         * Resol el número de factura actiu i dispara la validació.
+         * El clientId NO es passa — es resol a dins de `checkInvoice`.
+         *
+         * Prioritza el modal (si està obert) i, si no, llegeix l'`#invoice`
+         * del `invoiceStore` (funciona tant a la pàgina /financial com
+         * en qualsevol altre context on Pabau hagi muntat l'element).
+         *
+         * IMPORTANT: Aquesta funció SEMPRE dispara una nova validació
+         * cada vegada que l'usuari entra al panell de pagaments. La
+         * deduplicació de crides concurrents es fa amb `_processingKey`
+         * (i `inFlight` dins de `_runValidation`).
+         */
+        async function process({ apiKey: key }) {
+            if (!isPaymentTabActive()) return;
+
+            const modal = modalInvoiceExtractor.isInsideEditInvoiceModal();
+            let invoiceNo = null;
+
+            if (modal) {
+                // Modal obert des del calendari: extraiem l'invoiceNo del DOM.
+                invoiceNo = modalInvoiceExtractor.extractInvoiceNoFromModal(modal);
+            } else {
+                // Flux "normal": llegim l'invoiceNo de #invoice.
+                invoiceNo = invoiceStore.invoiceNo;
+            }
+
+            if (!invoiceNo) return;
+
+            const btn = document.querySelector(CONFIG.BUTTON_SELECTOR);
+            if (!btn) return;
+
+            const cacheKey = String(invoiceNo);
+            return _runValidation({ apiKey: key, invoiceNo, cacheKey });
         }
 
         /**
@@ -1892,8 +2230,32 @@
 
             // Reaccionar a qualsevol muntatge/desmuntatge del botó o del #invoice.
             const ensureDom = () => {
-                const clientId = clientIdFromPath(location.pathname);
-                if (!clientId) return;
+                // ─── Anti-bucle ────────────────────────────────────────────
+                // Si buttonGuard està aplicant canvis al DOM (p. ex. canviant
+                // el text del botó o aplicant estils), IGNOREM els canvis
+                // del MutationObserver perquè sinó entraríem en un bucle
+                // infinit: process() → _runValidation() → buttonGuard.block()
+                // (canvia DOM) → MutationObserver → ensureDom() → process().
+                //
+                // El flag `isActing` es desactiva amb un setTimeout(0)
+                // dins de `endMutation()` perquè el MutationObserver tingui
+                // temps de veure els canvis ABANS de permetre'ns reaccionar.
+                if (buttonGuard.isActing()) return;
+
+                // ─── Anti-revalidació per clicks ─────────────────────────
+                // Si l'usuari acaba de fer click en un botó de pagament,
+                // Pabau ja està gestionant el seu propi flux (canvia l'estat
+                // del botó, mostra diàlegs, etc.) i provoca múltiples
+                // mutacions al DOM en pocs ms. Si deixem que el
+                // MutationObserver les processi totes, dispararíem
+                // `process()` innecessàriament N vegades seguides. El
+                // listener de click a `install()` activa aquest flag
+                // durant un microtask, i aquí el comprovem per descartar
+                // aquestes mutacions "internes" de Pabau.
+                if (_actingOnUserAction) return;
+
+                const btn = document.querySelector(CONFIG.BUTTON_SELECTOR);
+                if (!btn) return;
 
                 // CAS 1: NO estem al panel de pagaments.
                 // → Els botons tornen al seu color/estat originals de
@@ -1904,35 +2266,51 @@
                 }
 
                 // CAS 2: Panel actiu.
+                // Avaluem el número de factura actiu (del modal si està
+                // obert, o de #invoice si estem a /financial).
+                const invoiceNo = (() => {
+                    const modal = modalInvoiceExtractor.isInsideEditInvoiceModal();
+                    if (modal) {
+                        return modalInvoiceExtractor.extractInvoiceNoFromModal(modal);
+                    }
+                    return invoiceStore.invoiceNo;
+                })();
+                const cacheKey = invoiceNo != null ? String(invoiceNo) : null;
 
-                // FIRST: Check if we've already processed this invoice.
-                // IMPORTANT: Do this BEFORE blocking buttons, so we don't
-                // re-disable buttons that were correctly unblocked by process().
-                const invoiceNo = invoiceStore.invoiceNo;
-                const cacheKey =
-                    invoiceNo != null ? `${clientId}|${invoiceNo}` : null;
-                const mainBtn = document.querySelector(CONFIG.BUTTON_SELECTOR);
-                const alreadyChecked = mainBtn && mainBtn.dataset.lopdChecked === cacheKey;
-                const hasBlockedButtons = document.querySelector(
-                    `${CONFIG.PAYMENT_BUTTON_SELECTORS}[data-lopd-blocked="true"]`,
-                );
+                // Encara no tenim prou informació per validar. No deixem
+                // botons bloquejats preventivament sense una consulta que
+                // els pugui desbloquejar després.
+                if (!cacheKey) return;
 
-                // If already checked, we should NOT re-block the payment buttons.
-                // The 6 buttons we unblocked must stay enabled, and the 4
-                // Pabau-disabled buttons must stay disabled.
-                if (cacheKey && (invoiceGuard._processingKey === cacheKey || alreadyChecked)) {
+                // Si ja hi ha una validació en curs per aquesta mateixa
+                // factura, no en llancem cap altra. Aquesta comparació ha de
+                // fer-se contra la variable local: `invoiceGuard` no exposa
+                // `_processingKey` públicament.
+                if (_processingKey === cacheKey) return;
+
+                // Una mutació del DOM (incloses les provocades en clicar un
+                // mètode de pagament) no invalida la documentació. Reapliquem
+                // el resultat guardat als nodes que React pugui haver remuntat
+                // i, sobretot, NO tornem a consultar l'API.
+                const cachedState = processedViews.get(cacheKey);
+                if (cachedState) {
+                    applyValidationState(btn, cachedState);
                     return;
                 }
 
-                // Bloquem immediatament
+                // Bloquem immediatament tots els botons de pagament
+                // mentre dura la consulta (és la primera vegada o una
+                // re-entrada al panell).
                 buttonGuard.forceBlockAllPaymentButtons(
                     "Revisando documentación...",
                 );
                 buttonGuard.blockPaymentButtons("Revisando documentación...");
 
                 // Cridem process() per fer la consulta API i desbloquejar
-                // o mantenir el bloqueig segons el resultat.
-                process({ apiKey: key, clientId });
+                // (o mantenir el bloqueig) segons el resultat. SEMPRE
+                // es tornarà a consultar l'API cada vegada que l'usuari
+                // entra al panell — l'estat no és estàtic.
+                process({ apiKey: key });
             };
 
             if (document.readyState === "loading") {
@@ -1940,7 +2318,20 @@
             } else {
                 ensureDom();
             }
-            const mo = new MutationObserver(ensureDom);
+            // MutationObserver que descarta els canvis al DOM que provenen
+            // de les nostres pròpies modificacions (buttonGuard.block/unblock).
+            // Si NO els descartem, el callback s'executaria DESPRÉS que
+            // `_acting` es desactivi (via setTimeout(0)) i veuria `_acting = false`,
+            // disparant un bucle infinit.
+            const mo = new MutationObserver((mutations, obs) => {
+                if (buttonGuard.isActing()) {
+                    // Els canvis al DOM són nostres (de buttonGuard.block/unblock);
+                    // els descartem perquè el callback de sota no els processi.
+                    obs.takeRecords();
+                    return;
+                }
+                ensureDom();
+            });
             mo.observe(document.body, { childList: true, subtree: true });
 
             // Observer específic per detectar canvis de tab dins de
@@ -1952,32 +2343,15 @@
                 for (const panel of allTabPanels()) {
                     tabObserver.observe(panel, {
                         attributes: true,
-                        attributeFilter: ["aria-hidden", "class"],
+                        // L'estat actiu es determina exclusivament amb
+                        // aria-hidden. Observar `class` feia que canvis
+                        // visuals interns poguessin revalidar la factura.
+                        attributeFilter: ["aria-hidden"],
                     });
                 }
             };
             subscribeTabPanels();
-
-            // Observer per detectar quan el PAYMENT FOOTER apareix al DOM.
-            // Si els botons JA tenen `data-lopd-blocked` (marcador nostre),
-            // ignorem per evitar re-bloqueig redundant.
-            const paymentFooterObserver = new MutationObserver((mutations) => {
-                if (!isPaymentTabActive()) return;
-                // Ja tenim botons marcats? No cal tornar a bloquejar.
-                const alreadyBlocked = document.querySelector(
-                    `${CONFIG.PAYMENT_BUTTON_SELECTORS}[data-lopd-blocked="true"]`,
-                );
-                if (alreadyBlocked) return;
-                buttonGuard.forceBlockAllPaymentButtons(
-                    "Revisando documentación...",
-                );
-                buttonGuard.blockPaymentButtons("Revisando documentación...");
-            });
-            // Observem tot el document per detectar quan el footer apareix
-            paymentFooterObserver.observe(document.body, {
-                childList: true,
-                subtree: true,
-            });
+            paymentTabWasActive = isPaymentTabActive();
 
             // Re-subscriure quan el body canviï (per si React remunta
             // les tabs, cosa que passa sovint a la SPA).
@@ -1991,6 +2365,33 @@
                 subscribeTabPanels();
             });
             tabResub.observe(document.body, { childList: true, subtree: true });
+
+            // ─── Listener anti-revalidació per clicks ──────────────────
+            // Quan l'usuari clica un botó de pagament (Credit, Cash,
+            // Card, etc.) o el botó "Guardar cambios", Pabau modifica
+            // el DOM per gestionar la seva acció (canviar l'estat del
+            // botó, mostrar un diàleg, fer una navegació, etc.). Aquests
+            // canvis dispararien `process()` innecessàriament a través
+            // del MutationObserver. Per evitar-ho, activem el flag
+            // `_actingOnUserAction` durant un microtask quan es detecta
+            // un click dins d'aquests botons. Així, `ensureDom` retornarà
+            // immediatament sense validar.
+            //
+            // IMPORTANT: usem `closest()` perquè el click pot provenir
+            // d'un element fill del botó (p. ex. una icona SVG).
+            document.addEventListener(
+                "click",
+                (e) => {
+                    const target = e.target;
+                    if (!(target instanceof Element)) return;
+                    if (!target.closest(PAYMENT_BTN_SELECTOR)) return;
+                    _actingOnUserAction = true;
+                    setTimeout(() => {
+                        _actingOnUserAction = false;
+                    }, 0);
+                },
+                true, // capture phase per agafar el click abans que Pabau
+            );
         }
 
         return { install };
@@ -2004,11 +2405,12 @@
      * ======================================================================= */
 
     function bootstrap() {
-        // El @match cobreix tota l'app Pabau, però el bloqueig del botó
-        // només s'aplica quan location.pathname és /clients/<id>/...
-        // (ho gestiona invoiceGuard.process → clientIdFromPath).
-        // Per tant NO fem return aquí: hem d'instal·lar sempre el
-        // routerWatcher i l'invoiceGuard per reaccionar a la navegació SPA.
+        // El @match cobreix tota l'app Pabau. El bloqueig s'aplica a
+        // qualsevol context on apareix el panell de pagaments
+        // (/clients/{id}/financial, modal obert des del calendari, etc.).
+        // El clientId es resol SEMPRE via API /invoices, no del path.
+        // Per tant hem d'instal·lar sempre el routerWatcher i
+        // l'invoiceGuard per reaccionar a la navegació SPA.
 
         const key = apiKey.get();
         if (!key) {
@@ -2029,11 +2431,8 @@
         }
 
         invoiceGuard.install({ apiKey: key });
-        const initialClientId = location.pathname.match(/^\/clients\/(\d+)\//);
         console.log(
-            `%c[Pabau LOPD] v${GM_info.script.version} · ${location.pathname}${
-                initialClientId ? ` (client ${initialClientId[1]})` : ""
-            }`,
+            `%c[Pabau LOPD] v${GM_info.script.version} · ${location.pathname}`,
             "background:#28a745;color:#fff;padding:2px 6px;border-radius:3px;",
         );
         // Reaccionar també a canvis de valor de #invoice un cop muntat
