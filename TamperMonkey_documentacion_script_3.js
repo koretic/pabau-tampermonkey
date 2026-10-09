@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Block invoice Pabau - LOPD check
 // @namespace    http://tampermonkey.net/
-// @version      2.0.1
+// @version      2.0.2
 // @description  Comprova els papers requerits (LOPD + CI per tractament) pels items d'una factura Pabau. Compatible amb la nova UI v2 (`/clients/v2/...`) i la v1 (`/clients/...`).
 // @author       Alex Rodriguez
 // @homepageURL  https://github.com/koretic/pabau-tampermonkey
@@ -82,6 +82,10 @@
         //         que faci match.
         BUTTON_SELECTOR:
             '[data-testid="edit-invoice-header-save-btn"] button, button[data-testid="operation-create"]',
+        // v2: el `<button>` intern queda `disabled` i el navegador NO mostra
+        // el `title` en hover; el tooltip ha d'anar al contenidor `ar-button`.
+        SAVE_BUTTON_HOST_SELECTOR:
+            '[data-testid="edit-invoice-header-save-btn"]',
         BLOCKED_LABEL: "Falta la documentación firmada",
         LOPD_DOCUMENT: "LOPD_FIRMADO.pdf", // sempre requerit
         // === DEBUG ===========================================================
@@ -1950,6 +1954,37 @@
         }
         // ─────────────────────────────────────────────────────────────────
 
+        /** Contenidor v2 del botó Guardar (no rep `disabled`; rep el tooltip). */
+        function getSaveButtonTooltipHost(btn) {
+            if (!btn) return null;
+            return btn.closest(CONFIG.SAVE_BUTTON_HOST_SELECTOR);
+        }
+
+        function applySaveButtonTooltip(btn, tooltip) {
+            const tt = tooltip || "";
+            btn.title = tt;
+            const host = getSaveButtonTooltipHost(btn);
+            if (host) {
+                host.title = tt;
+            }
+        }
+
+        function clearSaveButtonTooltip(btn) {
+            btn.title = "";
+            const host = getSaveButtonTooltipHost(btn);
+            if (host) {
+                host.title = "";
+            }
+        }
+
+        function saveButtonTooltipMatches(btn, tooltip) {
+            const tt = tooltip || "";
+            if (btn.title !== tt) return false;
+            const host = getSaveButtonTooltipHost(btn);
+            if (host && host.title !== tt) return false;
+            return true;
+        }
+
         /**
          * Bloqueja UN sol botó (selector configurable). Aplica el color
          * vermell, desactiva, posa tooltip i desa l'estat als datasets.
@@ -1973,7 +2008,7 @@
             if (
                 btn.dataset.lopdBlocked === "true" &&
                 label.textContent === finalLabel &&
-                btn.title === finalTooltip
+                saveButtonTooltipMatches(btn, finalTooltip)
             ) {
                 return true;
             }
@@ -1990,7 +2025,7 @@
             beginMutation();
             try {
                 label.textContent = finalLabel;
-                btn.title = finalTooltip;
+                applySaveButtonTooltip(btn, finalTooltip);
 
                 Object.assign(btn.style, {
                     backgroundColor: "#dc3545",
@@ -2035,7 +2070,7 @@
                 // canvia de tractament/items i torna a haver-hi issues,
                 // puguem tornar a bloquejar i restaurar correctament.
                 // (Sempre mantenim el primer text original capturat.)
-                btn.title = "";
+                clearSaveButtonTooltip(btn);
                 btn.disabled = false;
                 btn.style.cssText = "";
             } finally {
