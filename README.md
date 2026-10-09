@@ -6,7 +6,7 @@ Col·lecció d'scripts de Tampermonkey per a Pabau CRM.
 
 ### `TamperMonkey_documentacion_script_3.js` ✅ (recomanat)
 
-Versió actual (`2026-07-22`, script v`1.0.5`). Comprova que una factura
+Versió actual (`2026-09-16`, script v`2.0.0`). Comprova que una factura
 tingui **tots els papers signats necessaris** — el LOPD general **i**
 el consentiment informat (CI) de **cada tractament** de la factura — i
 bloqueja el botó **"Guardar cambios"** quan en falta algun o algun ha
@@ -15,9 +15,27 @@ caducat.
 A més, quan l'usuari és a la **pestanya de pagaments** (3a tab de
 `/financial`), bloqueja **tots els botons de mètode de pagament**
 (Credit, Points, Card on File, Card Terminal, Card, Card other, Cash,
-Account, Vouchers, Other) fins que tota la documentació estigui al dia.
-A la resta de pestanyes (`Detall`, `Productes`, `Historial`, etc.) cap
-botó és modificat.
+Account, Vouchers, Other) — i a la nova UI v2 també el botó **"Añadir pago"** —
+fins que tota la documentació estigui al dia. A la resta de pestanyes
+(`Detall`, `Productes`, `Historial`, etc.) cap botó és modificat.
+
+#### Què aporta respecte a la v1 (1.0.x)
+
+- **Compatibilitat amb la nova UI v2** (`/clients/v2/{id}/financial`).
+  A v2 el panell d'edició de factura canvia l'estructura del DOM:
+  - **Botó "Guardar cambios"**: passa de `button[data-testid="operation-create"]`
+    a l'intern de `[data-testid="edit-invoice-header-save-btn"]`.
+  - **Pestanya de pagaments activa**: passa de `[id$="panel-2"][aria-hidden="false"]`
+    a `[data-testid="edit-invoice-tabs-btn-payments"][aria-selected="true"]`.
+  - **Botó "Añadir pago"**: NOU a v2 (`[data-testid="cc-v2-payments-add-button"]`).
+    A v2 els mètodes de pagament individuals (Credit, Cash, etc.) estan
+    disabled per defecte i l'usuari comença sempre clicant "Añadir pago".
+  - **Estructura del número de factura** al modal: passa de `textContentHeaderText/InfoText`
+    a `InvoiceTemplatePreview_lbl__*/InvoiceTemplatePreview_val__*` dins de
+    la vista prèvia (`<ar-modal>`).
+- **Selectors combinats** que cobreixen TANT v1 COM v2 amb un sol
+  `CONFIG` — l'script detecta automàticament quina UI té l'usuari.
+- **Match addicional** al `@match`: `https://*.pabau.com/clients/v2/*/financial*`.
 
 #### Què aporta respecte a la v2
 

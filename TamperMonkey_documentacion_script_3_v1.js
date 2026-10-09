@@ -1,15 +1,14 @@
 // ==UserScript==
 // @name         Block invoice Pabau - LOPD check
 // @namespace    http://tampermonkey.net/
-// @version      2.0.1
-// @description  Comprova els papers requerits (LOPD + CI per tractament) pels items d'una factura Pabau. Compatible amb la nova UI v2 (`/clients/v2/...`) i la v1 (`/clients/...`).
+// @version      1.0.7
+// @description  Comprova els papers requerits (LOPD + CI per tractament) pels items d'una factura Pabau
 // @author       Alex Rodriguez
 // @homepageURL  https://github.com/koretic/pabau-tampermonkey
 // @downloadURL  https://raw.githubusercontent.com/koretic/pabau-tampermonkey/main/TamperMonkey_documentacion_script_3.js
 // @updateURL    https://raw.githubusercontent.com/koretic/pabau-tampermonkey/main/TamperMonkey_documentacion_script_3.js
 // @match        https://*.pabau.com/*
 // @match        https://*.pabau.com/clients/*/financial*
-// @match        https://*.pabau.com/clients/*/*/financial*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=pabau.com
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -26,8 +25,6 @@
  *   1. Constants i selectors
  *   2. Mòdul `invoiceStore`     -> gestiona el valor de #invoice de forma reactiva
  *   3. Mòdul `routerWatcher`   -> detecta canvis d'URL a la SPA
- *   3b. Mòdul `pageCompat`     -> detecta rutes /financial (v1, v2, v3…)
- *   3c. Mòdul `extensionAlert` -> avís visible si l'extensió no pot operar
  *   4. Mòdul `apiKey`          -> lectura/escriptura de la clau desada
  *   5. Mòdul `documentsApi`    -> consulta de LOPD_FIRMADO.pdf a l'API
  *   5b. Mòdul `invoiceApi`     -> consulta del detall d'una factura per número
@@ -52,36 +49,8 @@
     const CONFIG = Object.freeze({
         STORAGE_KEY: "pabau_api_key",
         API_BASE: "https://api.oauth.pabau.com",
-        // ============================================================
-        // DETECCIÓ V1 vs V2
-        // ============================================================
-        // La nova UI de Pabau (v2) canvia l'estructura del DOM:
-        //   - v1: pàgina /clients/{id}/financial, element #invoice,
-        //         botó "Guardar cambios" = button[data-testid="operation-create"],
-        //         tab de pagaments = [id$="panel-2"][aria-hidden="false"]
-        //   - v2: pàgina /clients/v2/{id}/financial, modal d'edició
-        //         amb data-testid="cc-v2-edit-invoice", botó save
-        //         dins d'un <ar-button data-testid="edit-invoice-header-save-btn">,
-        //         tab de pagaments = [data-testid="edit-invoice-tabs-btn-payments"][aria-selected="true"]
-        // Mantenim AMBDUES versions al fitxer perquè cada usuari pot
-        // tenir una UI diferent segons quan es va desplegar el seu
-        // entorn. La detecció és dinàmica (mòdul `invoiceGuard`).
-        // ============================================================
-        // v1: element `<select>` que conté el número de factura actiu.
         INVOICE_SELECTOR: "#invoice",
-        // v2: el modal d'edició de factura (raíz del panell).
-        INVOICE_SELECTOR_V2: '[data-testid="cc-v2-edit-invoice"]',
-        // Botó "Guardar cambios".
-        //   - v1: `button[data-testid="operation-create"]`
-        //   - v2: `[data-testid="edit-invoice-header-save-btn"]` envolta un `<button>`
-        //         intern. El `querySelector` retorna el primer match, així que
-        //         posem el selector v2 PRIMER perquè el seu `<button>` intern
-        //         és el que té el text "Guardar cambios" i el que captura els
-        //         clics. Si l'entorn és v1, el primer selector no retornarà res
-        //         i el segon (`button[data-testid="operation-create"]`) serà el
-        //         que faci match.
-        BUTTON_SELECTOR:
-            '[data-testid="edit-invoice-header-save-btn"] button, button[data-testid="operation-create"]',
+        BUTTON_SELECTOR: 'button[data-testid="operation-create"]',
         BLOCKED_LABEL: "Falta la documentación firmada",
         LOPD_DOCUMENT: "LOPD_FIRMADO.pdf", // sempre requerit
         // === DEBUG ===========================================================
@@ -99,41 +68,32 @@
         // Text que es mostra al botó mentre s'està consultant l'API.
         // El botó ja queda disabled; el text és purament informatiu.
         CONSULTING_LABEL: "Consultando documentación...",
-        // Modal d'edició de factura. A v1 s'obre des del calendari (no canvia
-        // la URL) amb classe EditInvoice_editInvoiceModal. A v2, el panell
-        // d'edició de factura ÉS la pàgina /clients/v2/{id}/financial amb
-        // data-testid="cc-v2-edit-invoice".
-        // Mantenim ambdós selectors per compatibilitat amb instal·lacions
-        // que encara estiguin en v1.
+        // Modal d'edició de factura que Pabau obre quan es clica sobre
+        // un event/cita al calendari (/calendar). Aquest modal s'obre
+        // DINS la pàgina /calendar (no canvia la URL), per la qual cosa
+        // el clientId s'obté SEMPRE via API /invoices (consultant el
+        // camp `client[0].contact_id`), NO del pathname.
+        // Veure mòdul `modalInvoiceExtractor` i la lògica unificada a
+        // `invoiceGuard.process`.
         EDIT_INVOICE_MODAL_SELECTOR:
-            '[data-testid="cc-v2-edit-invoice"], [class*="EditInvoice_editInvoiceModal"]',
-        // Tab de pagaments activa.
-        //   - v1: panel-2 amb aria-hidden="false"
-        //   - v2: botó tab amb aria-selected="true"
-        PAYMENT_PANEL_SELECTOR:
-            '[data-testid="edit-invoice-tabs-btn-payments"][aria-selected="true"], [id$="panel-2"][aria-hidden="false"]',
-        // Botó "Añadir pago" (NOU a v2). A v1 no existeix perquè el flux
-        // és directe (cada mètode de pagament té el seu botó).
-        ADD_PAYMENT_BUTTON_SELECTOR: '[data-testid="cc-v2-payments-add-button"]',
-        // Contenidor dels botons de pagament.
-        //   - v1: `div[class*="Tabs_invoiceTabPaymentActionFooterRow__"]`
-        //   - v2: `.PaymentsTab_hiddenTriggers__5nXX_` (div amb aria-hidden="true"
-        //         que allotja els botons de mètode; el div está amagat però els
-        //         botons continuen sent funcionals si React els re-activa).
+            '[class*="EditInvoice_editInvoiceModal"]',
+        // Panel de pagaments (3a pestanya de /financial, índex 2).
+        // El bloqueig del botó "Guardar cambios" NOMÉS s'aplica quan
+        // aquest panel està actiu (aria-hidden="false"). Si no existeix
+        // encara, el MutationObserver del bootstrap segueix escoltant
+        // fins que aparegui (no és un push a una altra pàgina, són
+        // tabs dins la mateixa pàgina).
+        PAYMENT_PANEL_SELECTOR: '[id$="panel-2"][aria-hidden="false"]',
+        // Contenidor que allotja TOTS els botons de mètode de pagament
+        // (Credit, Points, Card on File, Card Terminal, Card, Card other,
+        // Cash, Account, Vouchers, Other). És únic dins el panel-2 i ens
+        // serveix de "gate" per bloquejar tota la fila de cop.
         PAYMENT_FOOTER_SELECTOR:
-            'div[class*="PaymentsTab_hiddenTriggers__"], div[class*="Tabs_invoiceTabPaymentActionFooterRow__"]',
-        // Selectors individuals dels botons de pagament (v1 + v2).
-        //   - A v2 TOTS els botons de mètode venen amb `disabled=""` per defecte
-        //     i NO es fan servir directament: l'usuari ha de clicar "Añadir pago"
-        //     i escollir el mètode des d'un diàleg. Tot i així els bloquegem
-        //     preventivament per si React els re-activa en algun moment.
+            'div[class*="Tabs_invoiceTabPaymentActionFooterRow__"]',
+        // Selectors individuals dels botons de pagament. Tots queden
+        // dins de PAYMENT_FOOTER_SELECTOR; els llistem igual per si
+        // en algun moment es renderitza algun botó fora del footer.
         PAYMENT_BUTTON_SELECTORS: [
-            // v2: el botó principal per començar a afegir un pagament.
-            // A v2 els mètodes de pagament (Credit, Cash, etc.) ja estan
-            // disabled per defecte i l'usuari ha de clicar primer "Añadir pago"
-            // per escollir-ne un. Bloquegem aquest botó per impedir que
-            // comenci el flux quan la documentació no està al dia.
-            '[data-testid="cc-v2-payments-add-button"]',
             'button[data-testid="credit-payment-button"]',
             'button[data-testid="loyalty-payment-button"]',
             'button[data-testid="card-file-button"]',
@@ -685,7 +645,6 @@
         let currentItemId = null;    // fallback: si #invoice fos un <select> d'items
         let currentItemName = null;
         let watchId = 0;
-        let lastDebugInvoiceValue = null;
 
         /**
          * Comença a buscar l'element. Si ja n'existeix un cicle actiu,
@@ -702,7 +661,6 @@
             currentInvoiceNo = null;
             currentItemId = null;
             currentItemName = null;
-            lastDebugInvoiceValue = null;
             start();
         }
 
@@ -714,17 +672,6 @@
                 if (el.options && el.options[el.selectedIndex]) {
                     currentItemName = el.options[el.selectedIndex].text;
                     currentItemId = el.value;
-                }
-                if (
-                    debug.isEnabled() &&
-                    currentInvoiceNo &&
-                    currentInvoiceNo !== lastDebugInvoiceValue
-                ) {
-                    lastDebugInvoiceValue = currentInvoiceNo;
-                    debug.addLog("📍 Pas 2 · #invoice al DOM", {
-                        invoiceNo: currentInvoiceNo,
-                        itemName: currentItemName,
-                    });
                 }
                 return;
             }
@@ -787,295 +734,6 @@
         }
 
         return { install, subscribe };
-    })();
-
-    /* =========================================================================
-     * 3b. MÒDUL: pageCompat
-     * ----------------------------------------------------------------------
-     * Interpreta el pathname de Pabau per saber si estem a /financial i
-     * quina “generació” d’URL utilitza (v1 sense prefix, v2, v3…).
-     * ======================================================================= */
-
-    const pageCompat = (() => {
-        /** Prefixos d’URL suportats explícitament (DOM conegut). */
-        const SUPPORTED_VERSION_TAGS = new Set(["v2"]);
-
-        /**
-         * @param {string} [pathname]
-         * @returns {{
-         *   isFinancial: boolean,
-         *   layout: "v1"|"v2"|"unknown-version"|"none",
-         *   versionTag: string|null,
-         *   clientId: string|null,
-         *   unsupportedVersion: boolean,
-         * }}
-         */
-        function parseFinancialPath(pathname) {
-            const p = pathname || location.pathname || "";
-            let m = p.match(/^\/clients\/(\d+)\/financial/i);
-            if (m) {
-                return {
-                    isFinancial: true,
-                    layout: "v1",
-                    versionTag: null,
-                    clientId: m[1],
-                    unsupportedVersion: false,
-                };
-            }
-            m = p.match(/^\/clients\/(v\d+)\/(\d+)\/financial/i);
-            if (m) {
-                const tag = m[1].toLowerCase();
-                const supported = SUPPORTED_VERSION_TAGS.has(tag);
-                return {
-                    isFinancial: true,
-                    layout: supported ? "v2" : "unknown-version",
-                    versionTag: tag,
-                    clientId: m[2],
-                    unsupportedVersion: !supported,
-                };
-            }
-            return {
-                isFinancial: false,
-                layout: "none",
-                versionTag: null,
-                clientId: null,
-                unsupportedVersion: false,
-            };
-        }
-
-        function isUnsupportedFinancialVersion() {
-            return parseFinancialPath().unsupportedVersion;
-        }
-
-        return { parseFinancialPath, isUnsupportedFinancialVersion };
-    })();
-
-    /* =========================================================================
-     * 3c. MÒDUL: extensionAlert
-     * ----------------------------------------------------------------------
-     * Banner fix (estil avís de l’app) quan l’extensió NO pot completar el
-     * flux per falta de dades estructurals (selectors, número de factura,
-     * versió d’URL no prevista…). NO es mostra per documentació LOPD/CI
-     * pendent ni per errors de xarxa (política README).
-     * ======================================================================= */
-
-    const extensionAlert = (() => {
-        const ALERT_ID = "pabau-lopd-extension-alert";
-        const DEBOUNCE_MS = 2800;
-
-        /** @type {Record<string, { title: string, body: string }>} */
-        const COPY = {
-            NO_API_KEY: {
-                title: "Extensión de documentación no configurada",
-                body: "No se ha encontrado la clave API de Pabau. El control de documentación no puede ejecutarse. Configure la clave en el menú de Tampermonkey y avise al equipo técnico si necesita ayuda.",
-            },
-            NO_INVOICE_NO: {
-                title: "Extensión de documentación no operativa",
-                body: "No se ha podido leer el número de factura en esta pantalla (la interfaz de Pabau puede haber cambiado). No se puede comprobar la documentación antes del cobro. Avise al equipo técnico para que lo revisen.",
-            },
-            NO_SAVE_BUTTON: {
-                title: "Extensión de documentación no operativa",
-                body: "No se ha encontrado el botón «Guardar cambios» en esta vista. El bloqueo de cobros no puede aplicarse. Avise al equipo técnico para que lo revisen.",
-            },
-            UNSUPPORTED_URL_VERSION: {
-                title: "Extensión de documentación no compatible con esta URL",
-                body: "Pabau está usando una versión de la ruta /financial que la extensión aún no reconoce (por ejemplo /clients/v3/…/financial). Avise al equipo técnico para actualizar la extensión.",
-            },
-            INVOICE_SHELL_MISSING: {
-                title: "Extensión de documentación no operativa",
-                body: "No se ha detectado el panel de edición de factura en esta página (selectores cc-v2-edit-invoice / modal de factura). Avise al equipo técnico para que lo revisen.",
-            },
-        };
-
-        let root = null;
-        let visibleCode = null;
-        let pendingTimer = null;
-        let _domMutating = false;
-        /** @type {Set<string>} */
-        const dismissedCodes = new Set();
-
-        function isMutating() {
-            return _domMutating;
-        }
-
-        function beginDomMutation() {
-            _domMutating = true;
-        }
-
-        function endDomMutation() {
-            setTimeout(() => {
-                _domMutating = false;
-            }, 0);
-        }
-
-        function ensureRoot() {
-            if (root && document.body && document.body.contains(root)) return root;
-            root = document.createElement("div");
-            root.id = ALERT_ID;
-            root.setAttribute("role", "alert");
-            Object.assign(root.style, {
-                position: "fixed",
-                top: "16px",
-                left: "50%",
-                transform: "translateX(-50%)",
-                width: "min(560px, calc(100vw - 32px))",
-                zIndex: "2147483646",
-                boxSizing: "border-box",
-                backgroundColor: "#fff2f0",
-                border: "1px solid #ffccc7",
-                borderRadius: "8px",
-                boxShadow: "0 6px 16px rgba(0, 0, 0, 0.12)",
-                color: "rgba(0, 0, 0, 0.88)",
-                fontFamily:
-                    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-                fontSize: "14px",
-                lineHeight: "1.5",
-                padding: "12px 40px 12px 16px",
-                display: "none",
-            });
-
-            const closeBtn = document.createElement("button");
-            closeBtn.type = "button";
-            closeBtn.setAttribute("aria-label", "Cerrar aviso");
-            closeBtn.textContent = "×";
-            Object.assign(closeBtn.style, {
-                position: "absolute",
-                top: "8px",
-                right: "10px",
-                border: "none",
-                background: "transparent",
-                fontSize: "20px",
-                lineHeight: "1",
-                cursor: "pointer",
-                color: "rgba(0, 0, 0, 0.45)",
-                padding: "0 4px",
-            });
-            closeBtn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                if (visibleCode) dismissedCodes.add(visibleCode);
-                hide();
-            });
-
-            root.appendChild(closeBtn);
-            const mount = () => {
-                if (document.body) document.body.appendChild(root);
-            };
-            if (document.body) mount();
-            else document.addEventListener("DOMContentLoaded", mount, { once: true });
-            return root;
-        }
-
-        function render(code, detail) {
-            const copy = COPY[code];
-            if (!copy) return;
-            const el = ensureRoot();
-            const titleEl = el.querySelector("[data-pabau-alert-title]");
-            const bodyEl = el.querySelector("[data-pabau-alert-body]");
-            if (!titleEl) {
-                const wrap = document.createElement("div");
-                wrap.style.paddingRight = "8px";
-                const t = document.createElement("div");
-                t.dataset.pabauAlertTitle = "1";
-                Object.assign(t.style, { fontWeight: "600", marginBottom: "4px" });
-                const b = document.createElement("div");
-                b.dataset.pabauAlertBody = "1";
-                Object.assign(b.style, { fontSize: "13px", color: "rgba(0, 0, 0, 0.65)" });
-                wrap.appendChild(t);
-                wrap.appendChild(b);
-                el.insertBefore(wrap, el.firstChild);
-            }
-            const titleNode = el.querySelector("[data-pabau-alert-title]");
-            const bodyNode = el.querySelector("[data-pabau-alert-body]");
-            beginDomMutation();
-            try {
-                titleNode.textContent = copy.title;
-                bodyNode.textContent = detail
-                    ? `${copy.body} (${detail})`
-                    : copy.body;
-                el.style.display = "block";
-                visibleCode = code;
-                debug.addLog(`🚨 Avis extensió · ${code}`, {
-                    detail: detail || null,
-                });
-            } finally {
-                endDomMutation();
-            }
-        }
-
-        function hide() {
-            if (pendingTimer) {
-                clearTimeout(pendingTimer);
-                pendingTimer = null;
-            }
-            if (root) root.style.display = "none";
-            visibleCode = null;
-        }
-
-        function clearDismissals() {
-            dismissedCodes.clear();
-            hide();
-        }
-
-        /**
-         * Mostra l’avís (opcionalment amb debounce per no disparar durant el render SPA).
-         * @param {string} code
-         * @param {{ detail?: string, debounce?: boolean }} [opts]
-         */
-        function show(code, opts) {
-            if (dismissedCodes.has(code)) return;
-            const detail = opts && opts.detail ? String(opts.detail) : "";
-            const debounce = !(opts && opts.debounce === false);
-            if (pendingTimer) {
-                clearTimeout(pendingTimer);
-                pendingTimer = null;
-            }
-            if (debounce) {
-                pendingTimer = setTimeout(() => {
-                    pendingTimer = null;
-                    render(code, detail);
-                }, DEBOUNCE_MS);
-                return;
-            }
-            render(code, detail);
-        }
-
-        function hideCode(code) {
-            if (visibleCode === code) hide();
-        }
-
-        /** Amaga avisos lligats a la pestanya Pagos (no el de URL no suportada). */
-        function hideOperationalAlerts() {
-            hideCode("NO_INVOICE_NO");
-            hideCode("NO_SAVE_BUTTON");
-            hideCode("INVOICE_SHELL_MISSING");
-        }
-
-        /**
-         * Si el pathname és /clients/v3/…/financial (o v4, etc.), avisa en
-         * carregar o en navegar — sense esperar la pestanya Pagos (p. ex. 404).
-         */
-        function warnUnsupportedFinancialRoute() {
-            const route = pageCompat.parseFinancialPath();
-            if (!route.unsupportedVersion) {
-                hideCode("UNSUPPORTED_URL_VERSION");
-                return;
-            }
-            const detail =
-                route.versionTag != null
-                    ? `${route.versionTag} · ${location.pathname}`
-                    : location.pathname;
-            show("UNSUPPORTED_URL_VERSION", { detail, debounce: false });
-        }
-
-        return {
-            show,
-            hide,
-            hideCode,
-            clearDismissals,
-            hideOperationalAlerts,
-            warnUnsupportedFinancialRoute,
-            isMutating,
-        };
     })();
 
     /* =========================================================================
@@ -1556,9 +1214,6 @@
         async function checkInvoice({ apiKey: key, clientId, invoiceNo }) {
             // `clientId` del paràmetre s'ignora: ve sempre de la resposta.
             void clientId;
-            debug.addLog("📍 Pas 6/10 · API checkInvoice (inici)", {
-                invoiceNo,
-            });
             const { found, items, raw, clientId: resolvedClientId } = await invoiceApi.getByInvoiceNo({
                 apiKey: key,
                 invoiceNo,
@@ -1755,25 +1410,6 @@
      * ======================================================================= */
     const modalInvoiceExtractor = (() => {
         /**
-         * Normalitza el text visible d'un número de factura Pabau.
-         * A v2 moltes clíniques fan servir prefixos (p. ex. "V-944"),
-         * no només dígits.
-         * @param {string} raw
-         * @returns {string|null}
-         */
-        function parseInvoiceNoFromText(raw) {
-            const txt = (raw || "").trim();
-            if (!txt) return null;
-            const pureDigits = txt.match(/^#?(\d{1,10})$/);
-            if (pureDigits) return pureDigits[1];
-            const prefixed = txt.match(/^#?([A-Za-z]+-\d+)$/);
-            if (prefixed) return prefixed[1];
-            const generic = txt.match(/^#?([A-Za-z0-9-]{2,24})$/);
-            if (generic && /\d/.test(generic[1])) return generic[1];
-            return null;
-        }
-
-        /**
          * Retorna l'element del modal d'edició de factura si n'hi ha
          * algun de muntat al DOM, o `null` si no.
          *
@@ -1790,48 +1426,26 @@
         /**
          * Extreu el número de factura del DOM del modal.
          *
-         * v1 (estructura antiga):
+         * Estructura esperada al modal renderitzat:
          *   <div class="textContent">
          *     <span class="textContentHeaderText">Factura</span>
          *     <span class="textContentInfoText">#17543</span>
          *   </div>
          *
-         * v2 (estructura nova): la vista prèvia (`<ar-modal>` amb classe
-         * `InvoiceTemplatePreviewModal_*`) mostra el número al costat de
-         * l'etiqueta "Factura" dins del contenidor `.InvoiceTemplatePreview_*`.
-         * Exemple:
-         *   <div class="InvoiceTemplatePreview_lbl__...  ">Factura</div>
-         *   <div class="InvoiceTemplatePreview_val__...  ">18125</div>
-         * A més, el títol del panell (`h1.EditInvoiceHeader_title`) és
-         * "Editar factura" i no ens serveix per extreure el número.
-         *
-         * L'ordre d'heurístiques és: v1 directe → v1 textContent → v2
-         * preview → regex general.
+         * Busquem l'span amb text "Factura" i agafem el següent germà.
+         * Si no el trobem, retornem null i `processFromModal` ja
+         * s'encarregarà de gestionar-ho (no fa res).
          *
          * @param {Element} modal - element arrel del modal (no cal que
          *   contingui directament la informació, fem servir querySelectorAll).
-         * @param {Array|null} [trail] - si es passa, s'omple amb cada heurística provada (debug)
          * @returns {string|null} número de factura (p. ex. "17543") o null.
          */
-        function extractInvoiceNoFromModal(modal, trail) {
-            const note = (heuristica, raw, no) => {
-                if (!trail) return;
-                trail.push({
-                    heuristica,
-                    text: (raw || "").trim().slice(0, 120),
-                    ok: !!no,
-                    invoiceNo: no,
-                });
-            };
+        function extractInvoiceNoFromModal(modal) {
+            if (!modal) return null;
 
-            if (!modal) {
-                note("modal", null, null);
-                return null;
-            }
-
-            // 1) v1: span amb classe textContentHeaderText i text exacte
-            //    "Factura". El seu germà amb textContentInfoText conté
-            //    "#NNNNN".
+            // 1) Cerca directa al modal: span amb classe textContentHeaderText
+            //    i text exacte "Factura". El seu següent germà amb classe
+            //    textContentInfoText hauria de contenir "#NNNNN".
             const headers = modal.querySelectorAll(
                 ".textContentHeaderText, span[class*='textContentHeaderText']",
             );
@@ -1839,74 +1453,20 @@
                 if (h.textContent && h.textContent.trim() === "Factura") {
                     const sibling = h.nextElementSibling;
                     if (sibling) {
-                        const no = parseInvoiceNoFromText(sibling.textContent);
-                        note("v1 textContentHeaderText + germà", sibling.textContent, no);
-                        if (no) return no;
+                        const txt = (sibling.textContent || "").trim();
+                        const m = txt.match(/^#?(\d{1,10})$/);
+                        if (m) return m[1];
                     }
                 }
             }
-            if (headers.length > 0) {
-                note("v1 textContentHeaderText + germà", "(cap parell Factura vàlid)", null);
-            } else {
-                note("v1 textContentHeaderText + germà", "(sense headers)", null);
-            }
 
-            // 1b) v2: fila de factura dins del modal o a la llista (p. ex. #V-944).
-            const rowNo = modal.querySelector(
-                '[data-testid="cc2-invoice-open"] [class*="InvoiceRow_invoiceNo"],' +
-                '[class*="InvoiceRow_invoiceNo"]',
-            );
-            if (rowNo) {
-                const no = parseInvoiceNoFromText(rowNo.textContent);
-                note("v2 InvoiceRow_invoiceNo", rowNo.textContent, no);
-                if (no) return no;
-            } else {
-                note("v2 InvoiceRow_invoiceNo", "(element no trobat)", null);
-            }
-
-            // 2) v2: dins de la vista prèvia (`InvoiceTemplatePreview_*`),
-            //    busquem el pare amb classe `*_lbl__*` que contingui
-            //    exactament "Factura". El següent germà amb classe
-            //    `*_val__*` hauria de contenir el número (p. ex. "18125").
-            const lbls = modal.querySelectorAll(
-                "[class*='InvoiceTemplatePreview_lbl__']",
-            );
-            let previewTried = false;
-            for (const lbl of lbls) {
-                if ((lbl.textContent || "").trim() === "Factura") {
-                    previewTried = true;
-                    // L'estructura real és: <div class="...lbl...">Factura</div>
-                    // seguit d'un o més <div class="...val...">NNNNN</div>.
-                    // El primer germà .val és el número que ens interessa;
-                    // si no n'hi ha, mirem l'últim per si l'estructura canvia.
-                    let sib = lbl.nextElementSibling;
-                    while (sib && !sib.matches("[class*='InvoiceTemplatePreview_val__']")) {
-                        sib = sib.nextElementSibling;
-                    }
-                    if (sib) {
-                        const no = parseInvoiceNoFromText(sib.textContent);
-                        note("v2 InvoiceTemplatePreview lbl/val", sib.textContent, no);
-                        if (no) return no;
-                    } else {
-                        note("v2 InvoiceTemplatePreview lbl/val", "(sense germà val)", null);
-                    }
-                }
-            }
-            if (!previewTried) {
-                note("v2 InvoiceTemplatePreview lbl/val", "(sense lbl Factura)", null);
-            }
-
-            // 3) Fallback general: regex sobre el text complet del modal.
-            //    Captura patrons tipus "Factura\n#17543", "Factura V-944".
+            // 2) Fallback: regex sobre el text complet del modal. Això és
+            //    molt més permissiu i pot capturar el número encara que
+            //    Pabau canviï l'estructura de classes en un futur.
             const text = modal.textContent || "";
-            const m = text.match(/Factura\s*#?\s*([A-Za-z0-9-]+)/);
-            if (m) {
-                const no = parseInvoiceNoFromText(m[1]);
-                note("regex Factura … al text del modal", m[1], no);
-                if (no) return no;
-            } else {
-                note("regex Factura … al text del modal", "(sense coincidència)", null);
-            }
+            // Busquem patrons tipus "Factura\n#17543" o "Factura #17543".
+            const m = text.match(/Factura\s*#?\s*(\d{1,10})/);
+            if (m) return m[1];
 
             return null;
         }
@@ -2395,84 +1955,15 @@
         // flag durant un microtask quan es detecta un click. `ensureDom`
         // el comprova i retorna immediatament si està actiu.
         let _actingOnUserAction = false;
-        /** Evita repetir el mateix missatge d'espera des del MutationObserver. */
-        let _lastEnsureSkipSig = "";
-        let _validationFlowId = 0;
-        /** Evita cridar `process()` des de `ensureDom` en paral·lel (MO + alert). */
-        let _ensureDomInflightKey = null;
-
-        function logEnsureSkip(reason, detail) {
-            const sig = reason + JSON.stringify(detail || {});
-            if (sig === _lastEnsureSkipSig) return;
-            _lastEnsureSkipSig = sig;
-            debug.addLog(`⏸ Encallat / esperant · ${reason}`, detail);
-        }
-
-        function resetEnsureSkipLog() {
-            _lastEnsureSkipSig = "";
-        }
-
-        /**
-         * Context DOM per validar: pestanya Pagos, modal vs #invoice, número i botó.
-         * @returns {{ paymentTabActive: boolean, modalOpen: boolean, invoiceNo: string|null, source: string, trail: Array|null, saveButtonFound: boolean }}
-         */
-        function resolveInvoiceContext() {
-            const paymentTabActive = isPaymentTabActive();
-            const modalEl = modalInvoiceExtractor.isInsideEditInvoiceModal();
-            const trail = debug.isEnabled() ? [] : null;
-            let invoiceNo = null;
-            let source = "desconegut";
-            if (modalEl) {
-                invoiceNo = modalInvoiceExtractor.extractInvoiceNoFromModal(
-                    modalEl,
-                    trail,
-                );
-                source = "modal (editar factura)";
-            } else {
-                invoiceNo = invoiceStore.invoiceNo;
-                source = "#invoice (invoiceStore)";
-                if (trail) {
-                    trail.push({
-                        heuristica: source,
-                        text:
-                            invoiceNo != null && invoiceNo !== ""
-                                ? String(invoiceNo)
-                                : "(buit — obre una factura o pestanya Pagos; a v2 pot no existir #invoice)",
-                        ok: !!(invoiceNo != null && invoiceNo !== ""),
-                        invoiceNo: invoiceNo || null,
-                    });
-                }
-            }
-            const saveButtonFound = !!document.querySelector(
-                CONFIG.BUTTON_SELECTOR,
-            );
-            return {
-                paymentTabActive,
-                modalOpen: !!modalEl,
-                invoiceNo: invoiceNo != null && invoiceNo !== ""
-                    ? String(invoiceNo)
-                    : null,
-                source,
-                trail,
-                saveButtonFound,
-            };
-        }
-
         const PAYMENT_BTN_SELECTOR =
             CONFIG.PAYMENT_BUTTON_SELECTORS +
-            ', button[data-testid="operation-create"]' +
-            ', [data-testid="edit-invoice-header-save-btn"]' +
-            ', [data-testid="cc-v2-payments-add-button"]';
+            ', button[data-testid="operation-create"]';
         // ─────────────────────────────────────────────────────────────────
 
         /**
          * Comprova si el panel de pagaments (3a pestanya de la pàgina
          * /financial) està actualment actiu. Retorna true NOMÉS quan
-         * el selector `CONFIG.PAYMENT_PANEL_SELECTOR` té almenys un match.
-         *
-         * El selector combinat cobreix TANT la v1 (`[id$="panel-2"][aria-hidden="false"]`)
-         * COM la v2 (`[data-testid="edit-invoice-tabs-btn-payments"][aria-selected="true"]`),
-         * per la qual cosa el mètode funciona igual en ambdues versions.
+         * el div existeix I té aria-hidden="false".
          *
          * Si el panel no existeix (p. ex. l'usuari està en una altra
          * pestanya o la pàgina encara no ha renderitzat les tabs),
@@ -2488,42 +1979,23 @@
         }
 
         /**
-         * Retorna TOTS els elements de tab que existeixin al DOM, ja
-         * siguin v1 (`*-panel-N`) o v2 (`button[role="tab"][data-testid^="edit-invoice-tabs-btn-"]`).
-         * Serveix per saber a quins elements hem de subscriure'ns amb
-         * l'observer de tabs.
-         *
-         * A v2 les tabs són botons amb `aria-selected` que canvien
-         * dinàmicament. A v1 són divs amb `aria-hidden` que canvien.
-         * Observem TOTS dos tipus per cobrir qualsevol entorn.
+         * Retorna TOTS els elements `*-panel-N` que existeixin al DOM
+         * (independint del seu aria-hidden). Serveix per saber a quins
+         * panels hem de subscriure'ns amb l'observer de tabs.
          */
         function allTabPanels() {
             return Array.from(
-                document.querySelectorAll(
-                    '[id$="panel-0"], [id$="panel-1"], [id$="panel-2"], [id$="panel-3"], [id$="panel-4"],' +
-                    '[data-testid="edit-invoice-tabs-btn-details"],' +
-                    '[data-testid="edit-invoice-tabs-btn-items"],' +
-                    '[data-testid="edit-invoice-tabs-btn-payments"]',
-                ),
+                document.querySelectorAll('[id$="panel-0"], [id$="panel-1"], [id$="panel-2"], [id$="panel-3"], [id$="panel-4"]'),
             );
         }
 
         /** Neteja estats quan es canvia d'URL. */
-        function handleNavigation(ctx) {
-            resetEnsureSkipLog();
-            extensionAlert.clearDismissals();
-            debug.addLog("🧭 Pas 0 · Navegació SPA", {
-                de: ctx && ctx.oldHref,
-                a: ctx && ctx.newHref,
-                url: location.href,
-            });
+        function handleNavigation() {
             buttonGuard.unblockAll();
             invoiceStore.reset();
             // Sempre buidem la memòria: cada nova URL és una nova oportunitat
             // per aplicar el bloqueig preventiu i validar l'API.
             processedViews.clear();
-            _ensureDomInflightKey = null;
-            extensionAlert.warnUnsupportedFinancialRoute();
         }
 
         /**
@@ -2552,9 +2024,6 @@
                 { url: location.href },
             );
             if (!isActive) {
-                resetEnsureSkipLog();
-                extensionAlert.hideOperationalAlerts();
-                extensionAlert.warnUnsupportedFinancialRoute();
                 buttonGuard.unblockAll();
                 invoiceStore.reset();
                 processedViews.clear();
@@ -2563,11 +2032,6 @@
                 // process() no quedarà bloquejada per la promesa antiga.
                 _processingKey = null;
             } else {
-                resetEnsureSkipLog();
-                debug.addLog("📍 Pas 1/10 · Entrada a pestanya Pagos", {
-                    url: location.href,
-                });
-                extensionAlert.warnUnsupportedFinancialRoute();
                 buttonGuard.forceBlockAllPaymentButtons(
                     "Revisando documentación...",
                 );
@@ -2587,7 +2051,7 @@
                 // `encodeURIComponent` el serialitzaria a "[object Object]" i
                 // l'API retornaria 403. Per tant, cal cridar `apiKey.get()`
                 // explícitament per obtenir la string.
-                process({ apiKey: apiKey.get(), trigger: "handleTabChange" });
+                process({ apiKey: apiKey.get() });
             }
         }
 
@@ -2647,17 +2111,10 @@
          * de factura és únic a Pabau.
          */
         /** Aplica un resultat ja calculat sense tornar a consultar l'API. */
-        function applyValidationState(btn, state, meta) {
+        function applyValidationState(btn, state) {
             if (!btn || !state) return;
 
             if (state.label) {
-                debug.addLog("🛑 Pas 9/10 · Bloqueig aplicat", {
-                    label: state.label,
-                    tooltip:
-                        (state.tooltip || "").slice(0, 400) +
-                        ((state.tooltip || "").length > 400 ? "…" : ""),
-                    ...(meta || {}),
-                });
                 buttonGuard.block(state.label, state.tooltip || "");
                 buttonGuard.blockPaymentButtons(
                     state.tooltip ||
@@ -2666,7 +2123,6 @@
                 return;
             }
 
-            debug.addLog("✅ Pas 9/10 · Documentació OK — desbloqueig", meta || {});
             // Documentació OK: només revertim elements que encara portin
             // marcadors nostres. No forcem `disabled=false` sobre botons que
             // Pabau hagi desactivat durant el processament del pagament.
@@ -2676,27 +2132,10 @@
             buttonGuard.unblockPaymentButtons();
         }
 
-        async function _runValidation({
-            apiKey: key,
-            invoiceNo,
-            cacheKey,
-            flowId,
-        }) {
+        async function _runValidation({ apiKey: key, invoiceNo, cacheKey }) {
             const btn = document.querySelector(CONFIG.BUTTON_SELECTOR);
-            if (!btn) {
-                debug.addLog("❌ Pas 5/10 · Aturat", {
-                    flowId,
-                    motiu: "Botó Guardar no al DOM",
-                    selector: CONFIG.BUTTON_SELECTOR,
-                });
-                extensionAlert.show("NO_SAVE_BUTTON", { debounce: true });
-                return;
-            }
+            if (!btn) return;
 
-            debug.addLog("📍 Pas 5/10 · Bloqueig preventiu (consultant…)", {
-                flowId,
-                invoiceNo: cacheKey,
-            });
             // Bloquegem preventivament mentre dure la consulta.
             buttonGuard.block(CONFIG.CONSULTING_LABEL, "");
             buttonGuard.blockPaymentButtons("Revisando documentación...");
@@ -2705,21 +2144,14 @@
             // Si ja hi ha una validació en curs per la mateixa clau,
             // esperem-la i reapliquem el resultat al botó actual.
             if (inFlight && inFlight.key === cacheKey) {
-                debug.addLog("📍 Pas 6/10 · Validació concurrent (esperant mateixa factura)", {
-                    flowId,
-                    cacheKey,
-                });
                 const concurrentResult = await inFlight.promise;
                 const state = {
                     label: buildLabel(concurrentResult),
                     tooltip: buildTooltip(concurrentResult),
                 };
                 processedViews.set(cacheKey, state);
-                applyValidationState(btn, state, { flowId, cacheKey, via: "concurrent" });
+                applyValidationState(btn, state);
                 _processingKey = null;
-                debug.addLog("━━━ Fi flux #" + flowId + " (concurrent) ━━━", {
-                    issues: (concurrentResult.issues || []).length,
-                });
                 return;
             }
 
@@ -2737,10 +2169,6 @@
                         "[Pabau LOPD] Error consultant la factura:",
                         err,
                     );
-                    debug.addLog("❌ Pas 7/10 · Excepció checkInvoice", {
-                        flowId,
-                        error: String(err),
-                    });
                     // Política del README: error de xarxa → NO bloquegem.
                     return { found: false, items: [], required: [], issues: [], error: err };
                 }
@@ -2753,57 +2181,9 @@
                 label: buildLabel(result),
                 tooltip: buildTooltip(result),
             };
-            debug.addLog("📍 Pas 7/10 · Resultat API", {
-                flowId,
-                found: result.found,
-                issues: (result.issues || []).length,
-                errorXarxa: !!result.error,
-                clientId: result.clientId != null ? result.clientId : undefined,
-            });
-            if (result.error) {
-                debug.addLog("⚠️ Pas 8/10 · Error xarxa — no es bloqueja (política README)", {
-                    flowId,
-                });
-            } else if (state.label) {
-                debug.addLog("📍 Pas 8/10 · Cal bloquejar", {
-                    flowId,
-                    label: state.label,
-                });
-            } else {
-                debug.addLog("📍 Pas 8/10 · Sense issues — es desbloqueja", {
-                    flowId,
-                });
-            }
-
             processedViews.set(cacheKey, state);
-            applyValidationState(btn, state, { flowId, cacheKey });
+            applyValidationState(btn, state);
             _processingKey = null;
-            if (!result.error) {
-                extensionAlert.hideCode("NO_INVOICE_NO");
-                extensionAlert.hideCode("NO_SAVE_BUTTON");
-                extensionAlert.hideCode("INVOICE_SHELL_MISSING");
-            }
-            debug.addLog("━━━ Fi flux #" + flowId + " ━━━", {
-                invoiceNo: cacheKey,
-                bloquejat: !!state.label,
-                numIssues: (result.issues || []).length,
-            });
-        }
-
-        /** Comprovacions estructurals (URL / panell) abans de consultar l’API. */
-        function reportStructuralIssues(ctx) {
-            if (!ctx.paymentTabActive) return;
-
-            extensionAlert.warnUnsupportedFinancialRoute();
-
-            const route = pageCompat.parseFinancialPath();
-            if (
-                route.isFinancial &&
-                route.layout === "v2" &&
-                !document.querySelector(CONFIG.EDIT_INVOICE_MODAL_SELECTOR)
-            ) {
-                extensionAlert.show("INVOICE_SHELL_MISSING", { debounce: true });
-            }
         }
 
         /**
@@ -2819,81 +2199,27 @@
          * deduplicació de crides concurrents es fa amb `_processingKey`
          * (i `inFlight` dins de `_runValidation`).
          */
-        async function process({ apiKey: key, trigger }) {
-            _validationFlowId += 1;
-            const flowId = _validationFlowId;
-            resetEnsureSkipLog();
+        async function process({ apiKey: key }) {
+            if (!isPaymentTabActive()) return;
 
-            debug.addLog("━━━ Inici flux validació #" + flowId + " ━━━", {
-                trigger: trigger || "desconegut",
-                url: location.href,
-            });
+            const modal = modalInvoiceExtractor.isInsideEditInvoiceModal();
+            let invoiceNo = null;
 
-            const ctx = resolveInvoiceContext();
-
-            if (!ctx.paymentTabActive) {
-                debug.addLog("❌ Pas 1/10 · Aturat", {
-                    flowId,
-                    motiu: "Pestanya Pagos no activa",
-                    consell: "Obre editar factura → pestanya Pagos.",
-                });
-                return;
+            if (modal) {
+                // Modal obert des del calendari: extraiem l'invoiceNo del DOM.
+                invoiceNo = modalInvoiceExtractor.extractInvoiceNoFromModal(modal);
+            } else {
+                // Flux "normal": llegim l'invoiceNo de #invoice.
+                invoiceNo = invoiceStore.invoiceNo;
             }
-            debug.addLog("📍 Pas 1/10 · Pestanya Pagos activa", { flowId });
-            reportStructuralIssues(ctx);
 
-            debug.addLog("📍 Pas 2/10 · Número de factura", {
-                flowId,
-                modalObert: ctx.modalOpen,
-                font: ctx.source,
-                invoiceNo: ctx.invoiceNo,
-                extraccio: ctx.trail,
-            });
+            if (!invoiceNo) return;
 
-            if (!ctx.invoiceNo) {
-                debug.addLog("❌ Pas 2/10 · Aturat", {
-                    flowId,
-                    motiu: "No s'ha pogut llegir el número de factura",
-                    consell:
-                        "A v2 obre Pagos dins del modal; cal detectar V-944 o similar. Revisa extraccio al pas anterior.",
-                });
-                extensionAlert.show("NO_INVOICE_NO", { debounce: true });
-                return;
-            }
-            extensionAlert.hideCode("NO_INVOICE_NO");
+            const btn = document.querySelector(CONFIG.BUTTON_SELECTOR);
+            if (!btn) return;
 
-            if (!ctx.saveButtonFound) {
-                debug.addLog("❌ Pas 3/10 · Aturat", {
-                    flowId,
-                    motiu: "Botó Guardar no trobat",
-                    selector: CONFIG.BUTTON_SELECTOR,
-                    consell: "Espera que Pabau renderitzi el header del modal / operació.",
-                });
-                extensionAlert.show("NO_SAVE_BUTTON", { debounce: true });
-                return;
-            }
-            extensionAlert.hideCode("NO_SAVE_BUTTON");
-            debug.addLog("📍 Pas 3/10 · Botó Guardar trobat", { flowId });
-
-            if (!key) {
-                debug.addLog("❌ Pas 4/10 · Aturat", {
-                    flowId,
-                    motiu: "API key buida",
-                });
-                return;
-            }
-            debug.addLog("📍 Pas 4/10 · API key present — inici validació", {
-                flowId,
-                invoiceNo: ctx.invoiceNo,
-            });
-
-            const cacheKey = String(ctx.invoiceNo);
-            return _runValidation({
-                apiKey: key,
-                invoiceNo: ctx.invoiceNo,
-                cacheKey,
-                flowId,
-            });
+            const cacheKey = String(invoiceNo);
+            return _runValidation({ apiKey: key, invoiceNo, cacheKey });
         }
 
         /**
@@ -2914,18 +2240,7 @@
                 // El flag `isActing` es desactiva amb un setTimeout(0)
                 // dins de `endMutation()` perquè el MutationObserver tingui
                 // temps de veure els canvis ABANS de permetre'ns reaccionar.
-                if (buttonGuard.isActing()) {
-                    logEnsureSkip("DOM (nosaltres)", {
-                        motiu: "buttonGuard modificant el botó — s'ignora mutació",
-                    });
-                    return;
-                }
-                if (extensionAlert.isMutating()) {
-                    logEnsureSkip("DOM (nosaltres)", {
-                        motiu: "extensionAlert modificant el banner — s'ignora mutació",
-                    });
-                    return;
-                }
+                if (buttonGuard.isActing()) return;
 
                 // ─── Anti-revalidació per clicks ─────────────────────────
                 // Si l'usuari acaba de fer click en un botó de pagament,
@@ -2937,69 +2252,41 @@
                 // listener de click a `install()` activa aquest flag
                 // durant un microtask, i aquí el comprovem per descartar
                 // aquestes mutacions "internes" de Pabau.
-                if (_actingOnUserAction) {
-                    logEnsureSkip("Click pagament", {
-                        motiu: "Mutació per click usuari — no es revalida",
-                    });
-                    return;
-                }
+                if (_actingOnUserAction) return;
 
                 const btn = document.querySelector(CONFIG.BUTTON_SELECTOR);
-                if (!btn) {
-                    logEnsureSkip("Botó Guardar", {
-                        selector: CONFIG.BUTTON_SELECTOR,
-                        consell: "Obre una factura i la pestanya Pagos.",
-                    });
-                    return;
-                }
+                if (!btn) return;
 
                 // CAS 1: NO estem al panel de pagaments.
                 // → Els botons tornen al seu color/estat originals de
                 //   Pabau (no els hem tocat mai CSS) i netegem markers.
                 if (!isPaymentTabActive()) {
                     buttonGuard.unblockPaymentButtons();
-                    logEnsureSkip("Pestanya Pagos", {
-                        motiu: "Inactiva — encara no es valida",
-                    });
                     return;
                 }
 
                 // CAS 2: Panel actiu.
-                const ctx = resolveInvoiceContext();
-                const cacheKey = ctx.invoiceNo;
+                // Avaluem el número de factura actiu (del modal si està
+                // obert, o de #invoice si estem a /financial).
+                const invoiceNo = (() => {
+                    const modal = modalInvoiceExtractor.isInsideEditInvoiceModal();
+                    if (modal) {
+                        return modalInvoiceExtractor.extractInvoiceNoFromModal(modal);
+                    }
+                    return invoiceStore.invoiceNo;
+                })();
+                const cacheKey = invoiceNo != null ? String(invoiceNo) : null;
 
                 // Encara no tenim prou informació per validar. No deixem
                 // botons bloquejats preventivament sense una consulta que
                 // els pugui desbloquejar després.
-                if (!cacheKey) {
-                    logEnsureSkip("Número factura", {
-                        modalObert: ctx.modalOpen,
-                        font: ctx.source,
-                        extraccio: ctx.trail,
-                        consell:
-                            "Fins que no es llegeixi el número, el flux s'atura al pas 2.",
-                    });
-                    return;
-                }
+                if (!cacheKey) return;
 
                 // Si ja hi ha una validació en curs per aquesta mateixa
                 // factura, no en llancem cap altra. Aquesta comparació ha de
                 // fer-se contra la variable local: `invoiceGuard` no exposa
                 // `_processingKey` públicament.
-                if (_processingKey === cacheKey) {
-                    logEnsureSkip("Validació en curs", {
-                        invoiceNo: cacheKey,
-                        motiu: "Ja hi ha una consulta API per aquesta factura",
-                    });
-                    return;
-                }
-                if (_ensureDomInflightKey === cacheKey) {
-                    logEnsureSkip("Process ensureDom", {
-                        invoiceNo: cacheKey,
-                        motiu: "Ja hi ha un flux process() actiu per aquesta factura",
-                    });
-                    return;
-                }
+                if (_processingKey === cacheKey) return;
 
                 // Una mutació del DOM (incloses les provocades en clicar un
                 // mètode de pagament) no invalida la documentació. Reapliquem
@@ -3007,14 +2294,7 @@
                 // i, sobretot, NO tornem a consultar l'API.
                 const cachedState = processedViews.get(cacheKey);
                 if (cachedState) {
-                    logEnsureSkip("Cache sessió", {
-                        invoiceNo: cacheKey,
-                        motiu: "Resultat ja conegut — es reaplica sense API",
-                        bloquejat: !!cachedState.label,
-                    });
-                    applyValidationState(btn, cachedState, {
-                        via: "cache-processedViews",
-                    });
+                    applyValidationState(btn, cachedState);
                     return;
                 }
 
@@ -3030,14 +2310,7 @@
                 // (o mantenir el bloqueig) segons el resultat. SEMPRE
                 // es tornarà a consultar l'API cada vegada que l'usuari
                 // entra al panell — l'estat no és estàtic.
-                _ensureDomInflightKey = cacheKey;
-                void process({ apiKey: key, trigger: "ensureDom" }).finally(
-                    () => {
-                        if (_ensureDomInflightKey === cacheKey) {
-                            _ensureDomInflightKey = null;
-                        }
-                    },
-                );
+                process({ apiKey: key });
             };
 
             if (document.readyState === "loading") {
@@ -3051,7 +2324,7 @@
             // `_acting` es desactivi (via setTimeout(0)) i veuria `_acting = false`,
             // disparant un bucle infinit.
             const mo = new MutationObserver((mutations, obs) => {
-                if (buttonGuard.isActing() || extensionAlert.isMutating()) {
+                if (buttonGuard.isActing()) {
                     // Els canvis al DOM són nostres (de buttonGuard.block/unblock);
                     // els descartem perquè el callback de sota no els processi.
                     obs.takeRecords();
@@ -3062,25 +2335,18 @@
             mo.observe(document.body, { childList: true, subtree: true });
 
             // Observer específic per detectar canvis de tab dins de
-            // /financial.
-            //   - v1: l'estat actiu canvia l'atribut `aria-hidden` dels
-            //     panels (`*-panel-N`).
-            //   - v2: l'estat actiu canvia l'atribut `aria-selected` dels
-            //     botons de tab (`button[role="tab"]` amb data-testid
-            //     `edit-invoice-tabs-btn-*`).
-            // Observem TOTS dos atributs perquè el selector utilitzat
-            // (`allTabPanels()`) retorna una barreja de v1 i v2.
+            // /financial. Quan l'aria-hidden d'un panel canvia,
+            // mirem si estem al panel de pagaments o no.
             const subscribeTabPanels = () => {
                 if (tabObserver) tabObserver.disconnect();
                 tabObserver = new MutationObserver(handleTabChange);
                 for (const panel of allTabPanels()) {
                     tabObserver.observe(panel, {
                         attributes: true,
-                        // Observem `aria-hidden` (v1) I `aria-selected` (v2).
-                        // Si només en fixéssim un, no detectaríem canvis
-                        // a l'altra versió. Observar `class` feia que canvis
+                        // L'estat actiu es determina exclusivament amb
+                        // aria-hidden. Observar `class` feia que canvis
                         // visuals interns poguessin revalidar la factura.
-                        attributeFilter: ["aria-hidden", "aria-selected"],
+                        attributeFilter: ["aria-hidden"],
                     });
                 }
             };
@@ -3118,15 +2384,7 @@
                 (e) => {
                     const target = e.target;
                     if (!(target instanceof Element)) return;
-                    try {
-                        if (!target.closest(PAYMENT_BTN_SELECTOR)) return;
-                    } catch (err) {
-                        console.error(
-                            "[Pabau LOPD] Selector de pagament invàlid:",
-                            err,
-                        );
-                        return;
-                    }
+                    if (!target.closest(PAYMENT_BTN_SELECTOR)) return;
                     _actingOnUserAction = true;
                     setTimeout(() => {
                         _actingOnUserAction = false;
@@ -3157,14 +2415,6 @@
         const key = apiKey.get();
         if (!key) {
             console.error("[Pabau LOPD] No s'ha proporcionat API key.");
-            debug.addLog(
-                "❌ Script aturat: falta l'API key de Pabau",
-                {
-                    consell:
-                        "Tampermonkey → aquest script → menú → configurar API key.",
-                },
-            );
-            extensionAlert.show("NO_API_KEY", { debounce: false });
             return;
         }
 
@@ -3181,13 +2431,6 @@
         }
 
         invoiceGuard.install({ apiKey: key });
-        extensionAlert.warnUnsupportedFinancialRoute();
-        debug.addLog("✅ Script instal·lat (invoiceGuard actiu)", {
-            versio: GM_info.script.version,
-            url: location.href,
-            consell:
-                "Activa debug (Ctrl+Shift+D) i obre Pagos; segueix els passos 1–10 al panell.",
-        });
         console.log(
             `%c[Pabau LOPD] v${GM_info.script.version} · ${location.pathname}`,
             "background:#28a745;color:#fff;padding:2px 6px;border-radius:3px;",
